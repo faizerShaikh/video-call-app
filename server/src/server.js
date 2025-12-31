@@ -10,19 +10,29 @@ dotenv.config();
 const app = express();
 const httpServer = createServer(app);
 
-// CORS configuration - allow localhost and local network IPs
+// CORS configuration - allow localhost, local network IPs, and common hosting platforms
 const allowedOrigins = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',')
   : [
       'http://localhost:5173',
+      'https://localhost:5173',
       /^http:\/\/192\.168\.\d+\.\d+:5173$/,  // 192.168.x.x
       /^http:\/\/10\.\d+\.\d+\.\d+:5173$/,   // 10.x.x.x
       /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:5173$/, // 172.16-31.x.x
+      /^https?:\/\/.*\.vercel\.app$/,        // Vercel deployments
+      /^https?:\/\/.*\.netlify\.app$/,       // Netlify deployments
+      /^https?:\/\/.*\.github\.io$/,         // GitHub Pages
     ];
 
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
+      // In development, allow all origins
+      if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+        console.log('🌐 Development mode: allowing origin:', origin || 'no origin');
+        return callback(null, true);
+      }
+      
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) {
         console.log('⚠️  Request with no origin, allowing');
@@ -47,27 +57,28 @@ const io = new Server(httpServer, {
         callback(null, true);
       } else {
         console.log('❌ Origin not allowed:', origin);
-        // In development, be more permissive
-        if (process.env.NODE_ENV === 'development') {
-          console.log('⚠️  Development mode: allowing origin anyway');
-          callback(null, true);
-        } else {
-          callback(new Error('Not allowed by CORS'));
-        }
+        callback(new Error('Not allowed by CORS'));
       }
     },
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   },
   allowEIO3: true, // Allow Engine.IO v3 clients
-  transports: ['websocket', 'polling'], // Explicitly allow both transports
+  transports: ['polling', 'websocket'], // Try polling first, then websocket
   pingTimeout: 60000,
   pingInterval: 25000,
+  connectTimeout: 45000,
 });
 
+// More permissive CORS for development
 app.use(cors({
   origin: (origin, callback) => {
+    // In development, allow all origins for easier testing
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      return callback(null, true);
+    }
+    
     if (!origin) return callback(null, true);
     
     const isAllowed = allowedOrigins.some(allowed => {
@@ -87,6 +98,8 @@ app.use(cors({
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
 app.use(express.json());
@@ -97,8 +110,34 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     message: 'WebRTC signaling server is running',
     timestamp: new Date().toISOString(),
-    socketio: 'ready'
+    socketio: 'ready',
+    cors: {
+      mode: process.env.NODE_ENV || 'development',
+      allowedOrigins: process.env.CORS_ORIGIN || 'all (development)',
+    },
   });
+});
+
+// Handle Socket.io polling endpoint CORS explicitly
+app.use('/socket.io/', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  }
+  next();
+});
+
+// Test CORS endpoint
+app.options('*', (req, res) => {
+  const origin = req.headers.origin || '*';
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.sendStatus(200);
 });
 
 // Setup Socket.io handlers

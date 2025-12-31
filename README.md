@@ -72,22 +72,46 @@ webrtc/
 
 3. **Configure environment variables:**
    
-   Create a `.env` file in the `server` directory:
+   **Server** - Create a `.env` file in the `server` directory:
    ```
    PORT=3001
    NODE_ENV=development
    CORS_ORIGIN=http://localhost:5173
    ```
    
-   Optionally, create a `.env` file in the `client` directory:
+   **Client** - Create a `.env` file in the `client` directory:
    ```
+   # For local development (optional - defaults to localhost:3001)
    VITE_SOCKET_URL=http://localhost:3001
+   
+   # For production (use your hosted server)
+   # VITE_SOCKET_URL=https://video-call-app-server-faizer.vercel.app
    ```
+   
+   **Note:** To use the hosted Vercel server, uncomment and use the production URL above.
 
 ## 🚀 Running the Application
 
-### Start the Server
+### Option 1: Use Hosted Server (Recommended)
 
+If you have a hosted server (e.g., on Vercel), you can use it directly:
+
+1. **Create `.env` file in `client/` directory:**
+   ```env
+   VITE_SOCKET_URL=https://video-call-app-server-faizer.vercel.app
+   ```
+
+2. **Start the client:**
+   ```bash
+   cd client
+   npm run dev
+   ```
+
+The client will connect to your hosted server automatically.
+
+### Option 2: Local Development
+
+**Start the Server:**
 ```bash
 cd server
 npm run dev
@@ -95,14 +119,13 @@ npm run dev
 
 The server will start on `http://localhost:3001`
 
-### Start the Client
-
+**Start the Client:**
 ```bash
 cd client
 npm run dev
 ```
 
-The client will start on `http://localhost:5173`
+The client will start on `http://localhost:5173` and connect to the local server.
 
 ### Access from Local Network
 

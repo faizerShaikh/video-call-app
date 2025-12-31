@@ -3,15 +3,18 @@ import { io } from 'socket.io-client';
 
 // Dynamically determine socket URL based on current window location
 const getSocketUrl = () => {
-  // Use environment variable if set
+  // Use environment variable if set (for production/hosted server)
   if (import.meta.env.VITE_SOCKET_URL) {
+    console.log('🌐 Using configured socket URL:', import.meta.env.VITE_SOCKET_URL);
     return import.meta.env.VITE_SOCKET_URL;
   }
   
-  // Otherwise, use the same host as the current page but port 3001
+  // Otherwise, use the same host as the current page but port 3001 (for local development)
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
-  return `${protocol}//${hostname}:3001`;
+  const localUrl = `${protocol}//${hostname}:3001`;
+  console.log('🌐 Using local socket URL:', localUrl);
+  return localUrl;
 };
 
 const SOCKET_URL = getSocketUrl();
@@ -23,6 +26,7 @@ export function useSocket() {
 
   useEffect(() => {
     console.log('🔌 Attempting to connect to:', SOCKET_URL);
+    console.log('🌐 Current origin:', window.location.origin);
     
     // Create socket connection with fallback transports
     // Try polling first as it's more reliable across networks, then upgrade to websocket
@@ -36,6 +40,10 @@ export function useSocket() {
       timeout: 20000,
       forceNew: false,
       autoConnect: true,
+      withCredentials: true,
+      extraHeaders: {
+        'Origin': window.location.origin,
+      },
     });
 
     // Connection event handlers
@@ -62,16 +70,19 @@ export function useSocket() {
         type: err.type,
         description: err.description,
         data: err.data,
+        transport: newSocket.io?.engine?.transport?.name,
       });
       
       // More specific error messages
       let errorMessage = 'Failed to connect to server';
       if (err.message) {
         errorMessage = err.message;
-      } else if (err.type === 'TransportError') {
-        errorMessage = 'WebSocket connection failed. Trying polling...';
+      } else if (err.type === 'TransportError' || err.message?.includes('xhr poll')) {
+        errorMessage = 'Connection failed. Check if server is running and CORS is configured correctly.';
       } else if (err.type === 'TimeoutError') {
-        errorMessage = 'Connection timeout. Check if server is running.';
+        errorMessage = 'Connection timeout. Check if server is running on port 3001.';
+      } else if (err.message?.includes('CORS')) {
+        errorMessage = 'CORS error. Server may not be allowing your origin.';
       }
       
       setError(`Connection error: ${errorMessage}`);

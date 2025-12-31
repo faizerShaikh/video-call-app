@@ -2,14 +2,38 @@
 const rooms = new Map();
 
 export function setupSocket(io) {
-  // Log connection attempts
+  // Log all connection attempts
   io.engine.on('connection_error', (err) => {
     console.error('❌ Socket.io connection error:', err);
     console.error('Error details:', {
       message: err.message,
       type: err.type,
-      req: err.req?.headers,
+      description: err.description,
+      context: err.context,
+      req: err.req ? {
+        headers: err.req.headers,
+        url: err.req.url,
+        method: err.req.method,
+        origin: err.req.headers.origin,
+      } : null,
     });
+  });
+
+  // Log polling requests
+  io.engine.on('request', (req, res) => {
+    if (req.url?.includes('socket.io')) {
+      console.log('📡 Socket.io request:', {
+        method: req.method,
+        url: req.url,
+        origin: req.headers.origin,
+        transport: req._query?.transport || 'unknown',
+      });
+    }
+  });
+
+  // Log transport upgrades
+  io.engine.on('upgrade', (req, socket, head) => {
+    console.log('⬆️  Transport upgrade attempt:', req.headers.origin || 'no origin');
   });
 
   io.on('connection', (socket) => {
