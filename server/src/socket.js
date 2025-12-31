@@ -42,26 +42,71 @@ export function setupSocket(io) {
     console.log(`🌐 Remote address: ${socket.handshake.address}`);
     console.log(`🔗 Origin: ${socket.handshake.headers.origin}`);
 
+    // Normalize room ID (trim and lowercase)
+    const normalizeRoomId = (id) => {
+      if (!id) return null;
+      return String(id).trim().toLowerCase();
+    };
+
     // Join a room
     socket.on('join-room', ({ roomId, userId }) => {
-      console.log(`👤 User ${userId} joining room ${roomId}`);
+      // Normalize room ID to ensure consistency
+      const normalizedRoomId = normalizeRoomId(roomId);
       
-      socket.join(roomId);
+      if (!normalizedRoomId) {
+        console.error('❌ Invalid room ID:', roomId);
+        socket.emit('join-room-error', { message: 'Invalid room ID' });
+        return;
+      }
+
+      console.log(`👤 User ${userId} (${socket.id}) joining room "${normalizedRoomId}"`);
+      
+      // Leave any previous rooms this socket might be in
+      const previousRooms = Array.from(socket.rooms);
+      previousRooms.forEach(prevRoom => {
+        if (prevRoom !== socket.id && rooms.has(prevRoom)) {
+          socket.leave(prevRoom);
+          rooms.get(prevRoom).delete(socket.id);
+          console.log(`🔄 Left previous room: ${prevRoom}`);
+        }
+      });
+      
+      // Join the new room
+      socket.join(normalizedRoomId);
       
       // Track room participants
-      if (!rooms.has(roomId)) {
-        rooms.set(roomId, new Set());
+      if (!rooms.has(normalizedRoomId)) {
+        rooms.set(normalizedRoomId, new Set());
+        console.log(`🆕 Created new room: ${normalizedRoomId}`);
       }
-      rooms.get(roomId).add(socket.id);
+      rooms.get(normalizedRoomId).add(socket.id);
+
+      // Get list of other participants in the room
+      const otherParticipants = Array.from(rooms.get(normalizedRoomId))
+        .filter(id => id !== socket.id);
 
       // Notify others in the room
-      socket.to(roomId).emit('user-joined', { userId, socketId: socket.id });
+      socket.to(normalizedRoomId).emit('user-joined', { userId, socketId: socket.id });
 
-      // Send current room participants count
-      const participantCount = rooms.get(roomId).size;
-      io.to(roomId).emit('room-update', { participantCount });
+      // Send current room participants count and room info
+      const participantCount = rooms.get(normalizedRoomId).size;
+      io.to(normalizedRoomId).emit('room-update', { 
+        participantCount,
+        roomId: normalizedRoomId,
+        otherParticipants 
+      });
 
-      console.log(`📊 Room ${roomId} now has ${participantCount} participant(s)`);
+      // Confirm join to the client
+      socket.emit('room-joined', { 
+        roomId: normalizedRoomId,
+        participantCount,
+        otherParticipants 
+      });
+
+      console.log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s)`);
+      if (otherParticipants.length > 0) {
+        console.log(`👥 Other participants: ${otherParticipants.join(', ')}`);
+      }
     });
 
     // Handle WebRTC offer

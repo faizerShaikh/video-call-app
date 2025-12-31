@@ -35,15 +35,13 @@ export function useSocket() {
       upgrade: true, // Allow upgrade from polling to websocket
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: 15, // Increased attempts
       reconnectionDelayMax: 5000,
-      timeout: 20000,
+      timeout: 30000, // Increased timeout
       forceNew: false,
       autoConnect: true,
       withCredentials: true,
-      extraHeaders: {
-        'Origin': window.location.origin,
-      },
+      // Remove extraHeaders as it might cause issues with some servers
     });
 
     // Connection event handlers

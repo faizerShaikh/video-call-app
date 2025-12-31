@@ -35,9 +35,16 @@ export function VideoCall() {
     initializeLocalStream,
   } = useWebRTC(socket, roomId, localUserId);
 
+  // Normalize room ID (trim and lowercase for consistency)
+  const normalizeRoomId = (id) => {
+    return id.trim().toLowerCase();
+  };
+
   // Join room
   const handleJoinRoom = async () => {
-    if (!roomId.trim()) {
+    const normalizedRoomId = normalizeRoomId(roomId);
+    
+    if (!normalizedRoomId) {
       setError('Please enter a room ID');
       return;
     }
@@ -50,17 +57,23 @@ export function VideoCall() {
     try {
       setError(null);
       
+      // Update roomId state with normalized version
+      setRoomId(normalizedRoomId);
+      
       // Initialize local stream
       await initializeLocalStream();
 
-      // Join room via socket
-      socket.emit('join-room', { roomId, userId: localUserId });
+      // Join room via socket with normalized room ID
+      console.log('🚪 Joining room:', normalizedRoomId);
+      socket.emit('join-room', { roomId: normalizedRoomId, userId: localUserId });
       setHasJoinedRoom(true);
 
-      // Start call after a short delay to ensure room join is processed
+      // Start call after a delay to ensure room join is processed
+      // Also wait a bit longer to see if there are other participants
       setTimeout(() => {
+        console.log('📞 Starting call in room:', normalizedRoomId);
         startCall();
-      }, 500);
+      }, 1000);
     } catch (err) {
       console.error('Error joining room:', err);
       setError(err.message || 'Failed to join room');
@@ -112,8 +125,22 @@ export function VideoCall() {
     });
 
     // Handle room update
-    socket.on('room-update', ({ participantCount }) => {
+    socket.on('room-update', ({ participantCount, roomId, otherParticipants }) => {
+      console.log('📊 Room update:', { participantCount, roomId, otherParticipants });
       setParticipantCount(participantCount);
+    });
+
+    // Handle room joined confirmation
+    socket.on('room-joined', ({ roomId, participantCount, otherParticipants }) => {
+      console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants });
+      setParticipantCount(participantCount);
+    });
+
+    // Handle room join error
+    socket.on('join-room-error', ({ message }) => {
+      console.error('❌ Room join error:', message);
+      setError(`Failed to join room: ${message}`);
+      setHasJoinedRoom(false);
     });
 
     return () => {
@@ -123,6 +150,8 @@ export function VideoCall() {
       socket.off('user-joined');
       socket.off('user-left');
       socket.off('room-update');
+      socket.off('room-joined');
+      socket.off('join-room-error');
     };
   }, [socket, handleOffer, handleAnswer, handleIceCandidate]);
 
@@ -189,10 +218,17 @@ export function VideoCall() {
               <div className="flex gap-2">
                 <Input
                   id="roomId"
-                  placeholder="Enter room ID"
+                  placeholder="Enter room ID (e.g., 1, room1)"
                   value={roomId}
                   onChange={(e) => setRoomId(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
+                  onBlur={(e) => {
+                    // Normalize on blur to show user the actual room ID
+                    const normalized = normalizeRoomId(e.target.value);
+                    if (normalized && normalized !== e.target.value) {
+                      setRoomId(normalized);
+                    }
+                  }}
                 />
                 <Button variant="outline" onClick={generateRoomId} title="Generate random room ID">
                   🎲
