@@ -117,6 +117,14 @@ export function VideoCall() {
     // Handle user joined
     socket.on('user-joined', ({ userId, socketId }) => {
       console.log('👤 User joined:', userId, socketId);
+      // If we're already in a call and another user joins, we might need to restart
+      // But only if we don't have a remote stream yet and connection is not established
+      if (hasJoinedRoom && !remoteStream && connectionState !== 'connected') {
+        console.log('🔄 Another user joined, but no remote stream yet. Starting call...');
+        setTimeout(() => {
+          startCall();
+        }, 1000);
+      }
     });
 
     // Handle user left

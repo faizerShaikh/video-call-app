@@ -71,12 +71,24 @@ export function useSocket() {
         transport: newSocket.io?.engine?.transport?.name,
       });
       
+      // Don't show error if we're already connected or reconnecting
+      // This prevents showing transient errors during reconnection
+      if (isConnected || newSocket.io?.engine?.reconnecting) {
+        console.log('🔄 Connection error during reconnection, ignoring...');
+        return;
+      }
+      
       // More specific error messages
       let errorMessage = 'Failed to connect to server';
       if (err.message) {
         errorMessage = err.message;
       } else if (err.type === 'TransportError' || err.message?.includes('xhr poll')) {
-        errorMessage = 'Connection failed. Check if server is running and CORS is configured correctly.';
+        // Only show error if not reconnecting
+        if (!newSocket.io?.engine?.reconnecting) {
+          errorMessage = 'Connection failed. Check if server is running and CORS is configured correctly.';
+        } else {
+          return; // Don't set error during reconnection
+        }
       } else if (err.type === 'TimeoutError') {
         errorMessage = 'Connection timeout. Check if server is running on port 3001.';
       } else if (err.message?.includes('CORS')) {
