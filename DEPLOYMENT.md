@@ -4,6 +4,18 @@
 
 Your server is deployed at: `https://video-call-app-server-faizer.vercel.app/`
 
+### ⚠️ Important: Vercel Serverless Limitations
+
+**Vercel serverless functions have limitations with WebSockets:**
+- WebSocket connections require persistent connections, which don't work with serverless
+- The app is configured to use **polling only** on Vercel (no WebSocket upgrade)
+- This works but may have slightly higher latency than WebSockets
+
+**For production with WebSocket support, consider:**
+- Railway, Render, or Fly.io (support persistent connections)
+- A dedicated Socket.io server
+- Services like Pusher or Ably
+
 ### Server Configuration
 
 The server needs to be configured to allow CORS from your client's origin. Update the `CORS_ORIGIN` environment variable in Vercel:
@@ -14,21 +26,11 @@ The server needs to be configured to allow CORS from your client's origin. Updat
    - `CORS_ORIGIN`: Your client URL(s), comma-separated
      - Example: `https://your-client.vercel.app,http://localhost:5173`
    - `NODE_ENV`: `production` (for production mode)
+   - `VERCEL`: `1` (automatically set by Vercel, but can be set manually)
 
 ### Vercel Configuration
 
-Make sure your `vercel.json` (if you have one) allows Socket.io:
-
-```json
-{
-  "rewrites": [
-    {
-      "source": "/socket.io/:path*",
-      "destination": "/socket.io/:path*"
-    }
-  ]
-}
-```
+The app automatically detects Vercel and uses polling-only transport. No additional configuration needed.
 
 ## Client Configuration
 

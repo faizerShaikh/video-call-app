@@ -28,20 +28,24 @@ export function useSocket() {
     console.log('🔌 Attempting to connect to:', SOCKET_URL);
     console.log('🌐 Current origin:', window.location.origin);
     
-    // Create socket connection with fallback transports
-    // Try polling first as it's more reliable across networks, then upgrade to websocket
+    // Create socket connection
+    // For Vercel/serverless: Use only polling (websockets don't work well with serverless)
+    // For regular servers: Can use ['polling', 'websocket'] with upgrade: true
+    const isVercel = SOCKET_URL.includes('vercel.app') || SOCKET_URL.includes('vercel.com');
+    const transports = isVercel ? ['polling'] : ['polling', 'websocket'];
+    const upgrade = !isVercel; // Disable upgrade on Vercel
+    
     const newSocket = io(SOCKET_URL, {
-      transports: ['polling', 'websocket'], // Try polling first, then upgrade to websocket
-      upgrade: true, // Allow upgrade from polling to websocket
+      transports, // Use only polling on Vercel, polling+websocket elsewhere
+      upgrade, // Disable upgrade on Vercel
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: 15, // Increased attempts
+      reconnectionAttempts: 15,
       reconnectionDelayMax: 5000,
-      timeout: 30000, // Increased timeout
+      timeout: 30000,
       forceNew: false,
       autoConnect: true,
       withCredentials: true,
-      // Remove extraHeaders as it might cause issues with some servers
     });
 
     // Connection event handlers

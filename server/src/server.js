@@ -7,6 +7,9 @@ import { setupSocket } from './socket.js';
 
 dotenv.config();
 
+// Detect if running on Vercel
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -65,7 +68,10 @@ const io = new Server(httpServer, {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   },
   allowEIO3: true, // Allow Engine.IO v3 clients
-  transports: ['polling', 'websocket'], // Try polling first, then websocket
+  // For Vercel/serverless: Only use polling (websockets don't work with serverless)
+  // For regular servers: Can use ['polling', 'websocket']
+  transports: isVercel ? ['polling'] : ['polling', 'websocket'],
+  allowUpgrades: !isVercel, // Disable transport upgrades on Vercel
   pingTimeout: 60000,
   pingInterval: 25000,
   connectTimeout: 45000,
@@ -159,6 +165,10 @@ const HOST = process.env.HOST || '0.0.0.0';
 httpServer.listen(PORT, HOST, () => {
   console.log(`🚀 Server running on http://${HOST}:${PORT}`);
   console.log(`📡 Socket.io server ready for connections`);
-  console.log(`🌐 Accessible from: http://localhost:${PORT} and your local network IP`);
+  if (isVercel) {
+    console.log(`⚠️  Running on Vercel - Using polling transport only (WebSockets not supported)`);
+  } else {
+    console.log(`🌐 Accessible from: http://localhost:${PORT} and your local network IP`);
+  }
 });
 
