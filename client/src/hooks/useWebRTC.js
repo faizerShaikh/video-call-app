@@ -598,9 +598,32 @@ export function useWebRTC(socket, roomId, localUserId) {
         return;
       }
       
-      // Check if we already have a remote description
+      // Check the signaling state - we can only set an answer when we have a local offer
+      const signalingState = pc.signalingState;
+      console.log(`📥 Received answer from ${from}, current signaling state: ${signalingState}`);
+      
+      // Only process answer if we're in the correct state
+      if (signalingState !== 'have-local-offer') {
+        if (pc.remoteDescription) {
+          // Check if it's the same answer (same SDP)
+          const existingSDP = pc.remoteDescription.sdp;
+          const newSDP = answer.sdp;
+          
+          if (existingSDP === newSDP) {
+            console.log(`⚠️ Duplicate answer received from ${from} (same SDP), ignoring`);
+            return;
+          } else {
+            console.log(`⚠️ Answer received in wrong state (${signalingState}), already have remote description. Ignoring.`);
+            return;
+          }
+        } else {
+          console.log(`⚠️ Answer received in wrong state (${signalingState}), no local offer. Ignoring.`);
+          return;
+        }
+      }
+      
+      // Check if we already have a remote description (shouldn't happen in have-local-offer, but check anyway)
       if (pc.remoteDescription) {
-        // Check if it's the same answer (same SDP)
         const existingSDP = pc.remoteDescription.sdp;
         const newSDP = answer.sdp;
         
@@ -608,17 +631,9 @@ export function useWebRTC(socket, roomId, localUserId) {
           console.log(`⚠️ Duplicate answer received from ${from} (same SDP), ignoring`);
           return;
         } else {
-          // Different SDP - might be a renegotiation, update it
-          console.log(`🔄 Different answer received from ${from}, updating remote description (renegotiation?)`);
-          try {
-            await setRemoteDescription(pc, answer);
-            await processIceCandidateQueue(from);
-            return;
-          } catch (err) {
-            console.error(`❌ Failed to update remote description:`, err);
-            // If update fails, ignore the new answer
-            return;
-          }
+          console.log(`⚠️ Already have remote description, but different SDP. This shouldn't happen in have-local-offer state.`);
+          // Don't try to update - this would cause InvalidStateError
+          return;
         }
       }
 
@@ -638,9 +653,14 @@ export function useWebRTC(socket, roomId, localUserId) {
       await processIceCandidateQueue(from);
     } catch (err) {
       console.error(`Error handling answer from ${from}:`, err);
-      setError(err.message || `Failed to handle answer from ${from}`);
+      // Don't set error state for InvalidStateError - it's usually a duplicate/late answer
+      if (err.name !== 'InvalidStateError') {
+        setError(err.message || `Failed to handle answer from ${from}`);
+      } else {
+        console.log(`ℹ️ InvalidStateError when handling answer (likely duplicate/late answer), ignoring`);
+      }
     }
-  }, [processIceCandidateQueue, setRemoteDescription]);
+  }, [processIceCandidateQueue]);
 
   // Handle ICE candidate
   const handleIceCandidate = useCallback(async (candidate, from) => {
