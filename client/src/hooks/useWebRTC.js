@@ -11,7 +11,11 @@ import {
 } from '@/utils/webrtc';
 
 // Import these functions directly for use in callbacks
-import { createAnswer as createAnswerUtil, setRemoteDescription as setRemoteDescriptionUtil } from '@/utils/webrtc';
+import { 
+  createAnswer as createAnswerUtil, 
+  setRemoteDescription as setRemoteDescriptionUtil,
+  createOffer as createOfferUtil
+} from '@/utils/webrtc';
 
 export function useWebRTC(socket, roomId, localUserId) {
   const [localStream, setLocalStream] = useState(null);
@@ -251,45 +255,88 @@ export function useWebRTC(socket, roomId, localUserId) {
     
     // Also monitor ICE connection state
     pc.oniceconnectionstatechange = () => {
-      console.log(`🧊 ICE connection state for ${participantId}:`, pc.iceConnectionState);
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+      const iceState = pc.iceConnectionState;
+      console.log(`🧊 ICE connection state for ${participantId}:`, iceState);
+      
+      if (iceState === 'connected' || iceState === 'completed') {
         console.log(`✅ ICE connection established with ${participantId}`);
         
         // When ICE connection is established, check for tracks after a short delay
         setTimeout(() => {
           const receivers = pc.getReceivers();
           const receiverTracks = receivers.map(r => r.track).filter(Boolean);
-          const videoTracks = receiverTracks.filter(t => t.kind === 'video');
+          const liveTracks = receiverTracks.filter(t => t.readyState === 'live');
+          const videoTracks = liveTracks.filter(t => t.kind === 'video');
           
-          console.log(`📹 ICE connected for ${participantId}: ${receiverTracks.length} tracks, ${videoTracks.length} video`);
+          console.log(`📹 ICE connected for ${participantId}: ${liveTracks.length} live tracks (${videoTracks.length} video)`);
           
-          if (receiverTracks.length > 0) {
+          if (liveTracks.length > 0) {
             setRemoteStreams(prev => {
               const newMap = new Map(prev);
               const existingStream = newMap.get(participantId);
               const existingTracks = existingStream?.getTracks() || [];
               
-              // Check if we need to add any tracks
-              const missingTracks = receiverTracks.filter(
-                rt => !existingTracks.some(et => et.id === rt.id)
-              );
+              // Always create new stream with all live tracks
+              const allTracks = [
+                ...existingTracks.filter(et => !liveTracks.some(rt => rt.id === et.id) && et.readyState === 'live'),
+                ...liveTracks
+              ];
               
-              if (missingTracks.length > 0 || !existingStream) {
-                const allTracks = existingStream 
-                  ? [...existingTracks.filter(et => !receiverTracks.some(rt => rt.id === et.id)), ...receiverTracks]
-                  : receiverTracks;
-                
-                const updatedStream = new MediaStream(allTracks);
-                console.log(`🔄 ICE: Updated stream for ${participantId} with ${allTracks.length} track(s)`);
-                newMap.set(participantId, updatedStream);
-              }
-              
+              const updatedStream = new MediaStream(allTracks);
+              console.log(`🔄 ICE: Updated stream for ${participantId} with ${allTracks.length} live track(s)`);
+              newMap.set(participantId, updatedStream);
               return newMap;
             });
           }
         }, 500); // Small delay to ensure tracks are ready
-      } else if (pc.iceConnectionState === 'failed') {
+      } else if (iceState === 'failed') {
         console.error(`❌ ICE connection failed with ${participantId}`);
+        console.error(`   Connection state: ${pc.connectionState}`);
+        console.error(`   Local description:`, pc.localDescription?.type);
+        console.error(`   Remote description:`, pc.remoteDescription?.type);
+        
+        // Try to restart ICE (async operation)
+        console.log(`🔄 Attempting ICE restart for ${participantId}...`);
+        if (pc.localDescription && pc.remoteDescription) {
+          createOfferUtil(pc).then(newOffer => {
+            socket.emit('offer', {
+              offer: newOffer,
+              roomId,
+              targetId: participantId,
+            });
+            console.log(`📤 ICE restart offer sent to ${participantId}`);
+          }).catch(err => {
+            console.error(`❌ Failed to restart ICE for ${participantId}:`, err);
+          });
+        }
+      } else if (iceState === 'checking') {
+        // If stuck in checking for too long, log warning
+        const checkingStartTime = pc.iceCheckingStartTime || Date.now();
+        pc.iceCheckingStartTime = checkingStartTime;
+        const elapsed = Date.now() - checkingStartTime;
+        
+        if (elapsed > 10000) { // 10 seconds
+          console.warn(`⚠️ ICE checking taking too long for ${participantId} (${elapsed}ms)`);
+          console.warn(`   This might indicate NAT/firewall issues`);
+          console.warn(`   Consider using TURN servers for better connectivity`);
+        }
+      }
+    };
+    
+    // Monitor ICE gathering state
+    pc.onicegatheringstatechange = () => {
+      console.log(`🧊 ICE gathering state for ${participantId}:`, pc.iceGatheringState);
+      if (pc.iceGatheringState === 'complete') {
+        console.log(`✅ ICE gathering complete for ${participantId}`);
+        // Log candidate types gathered
+        const stats = pc.getStats();
+        stats.then(result => {
+          result.forEach(report => {
+            if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+              console.log(`   Candidate: ${report.candidateType} - ${report.ip}:${report.port} - ${report.protocol}`);
+            }
+          });
+        });
       }
     };
 
@@ -553,11 +600,37 @@ export function useWebRTC(socket, roomId, localUserId) {
       
       // Check if we already have a remote description
       if (pc.remoteDescription) {
-        console.log(`⚠️ Remote description already set for ${from}, ignoring duplicate answer`);
-        return;
+        // Check if it's the same answer (same SDP)
+        const existingSDP = pc.remoteDescription.sdp;
+        const newSDP = answer.sdp;
+        
+        if (existingSDP === newSDP) {
+          console.log(`⚠️ Duplicate answer received from ${from} (same SDP), ignoring`);
+          return;
+        } else {
+          // Different SDP - might be a renegotiation, update it
+          console.log(`🔄 Different answer received from ${from}, updating remote description (renegotiation?)`);
+          try {
+            await setRemoteDescription(pc, answer);
+            await processIceCandidateQueue(from);
+            return;
+          } catch (err) {
+            console.error(`❌ Failed to update remote description:`, err);
+            // If update fails, ignore the new answer
+            return;
+          }
+        }
       }
 
       console.log(`📥 Setting remote description from answer from ${from}...`);
+      console.log(`📥 Answer SDP (first 200 chars):`, answer.sdp?.substring(0, 200));
+      
+      // Check if answer has public IPs
+      const hasPublicIP = answer.sdp && !answer.sdp.includes('127.0.0.1') && !answer.sdp.includes('0.0.0.0');
+      if (!hasPublicIP) {
+        console.warn(`⚠️ Answer SDP contains localhost IP - NAT traversal might fail`);
+      }
+      
       await setRemoteDescription(pc, answer);
       console.log(`✅ Remote description set for ${from}, processing queued ICE candidates`);
       
@@ -567,7 +640,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.error(`Error handling answer from ${from}:`, err);
       setError(err.message || `Failed to handle answer from ${from}`);
     }
-  }, [processIceCandidateQueue]);
+  }, [processIceCandidateQueue, setRemoteDescription]);
 
   // Handle ICE candidate
   const handleIceCandidate = useCallback(async (candidate, from) => {
