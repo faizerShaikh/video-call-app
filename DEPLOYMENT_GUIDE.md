@@ -28,12 +28,10 @@ Railway is the easiest platform that fully supports WebSockets. Here's how to de
 
 4. **Configure Service**:
    - **Root Directory**: `server` ⚠️ **IMPORTANT: Set this!**
-   - **Build Command**: Leave **EMPTY** (Railway will auto-run `npm install`)
+   - **Build Command**: Leave **EMPTY** (Railway will auto-detect and run `npm install`)
    - **Start Command**: `npm start`
    
-   **OR** if build fails, try:
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
+   **Note**: Railway will auto-detect Node.js from `package.json` engines field. No need for custom build config!
 
 5. **Set Environment Variables** (in Railway dashboard):
    ```
