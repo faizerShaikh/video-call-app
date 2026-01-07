@@ -10,20 +10,25 @@ import {
   getUserMedia,
 } from '@/utils/webrtc';
 
+// Import these functions directly for use in callbacks
+import { createAnswer as createAnswerUtil, setRemoteDescription as setRemoteDescriptionUtil } from '@/utils/webrtc';
+
 export function useWebRTC(socket, roomId, localUserId) {
   const [localStream, setLocalStream] = useState(null);
-  const [remoteStream, setRemoteStream] = useState(null);
+  // Multiple remote streams: Map<socketId, MediaStream>
+  const [remoteStreams, setRemoteStreams] = useState(new Map());
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(true);
-  const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
-  const [connectionState, setConnectionState] = useState('disconnected');
+  // Multiple remote media states: Map<socketId, {videoEnabled, audioEnabled}>
+  const [remoteMediaStates, setRemoteMediaStates] = useState(new Map());
+  const [connectionStates, setConnectionStates] = useState(new Map()); // Map<socketId, connectionState>
   const [error, setError] = useState(null);
 
-  const peerConnectionRef = useRef(null);
+  // Multiple peer connections: Map<socketId, RTCPeerConnection>
+  const peerConnectionsRef = useRef(new Map());
   const localStreamRef = useRef(null);
-  const remoteStreamRef = useRef(null);
-  const iceCandidateQueueRef = useRef([]); // Queue for ICE candidates received before remote description is set
+  // Multiple ICE candidate queues: Map<socketId, RTCIceCandidate[]>
+  const iceCandidateQueuesRef = useRef(new Map());
 
   // Initialize local stream
   const initializeLocalStream = useCallback(async () => {
@@ -40,123 +45,317 @@ export function useWebRTC(socket, roomId, localUserId) {
     }
   }, []);
 
-  // Create peer connection
-  const createPeerConnectionInstance = useCallback(() => {
+  // Create peer connection for a specific participant
+  const createPeerConnectionInstance = useCallback((participantId) => {
     const pc = createPeerConnection();
 
     // Handle remote stream
     pc.ontrack = (event) => {
-      console.log('📹 Received remote track', event);
-      console.log('📹 Track streams:', event.streams);
-      console.log('📹 Track:', event.track);
-      console.log('📹 Track kind:', event.track?.kind);
-      console.log('📹 Track enabled:', event.track?.enabled);
+      console.log(`📹 Received remote track from ${participantId}`, {
+        trackId: event.track?.id?.substring(0, 8),
+        trackKind: event.track?.kind,
+        trackEnabled: event.track?.enabled,
+        trackReadyState: event.track?.readyState,
+        streams: event.streams?.length || 0,
+      });
       
-      // Handle both event.streams and event.track
-      if (event.streams && event.streams.length > 0) {
-        const stream = event.streams[0];
-        console.log('✅ Setting remote stream from event.streams[0]');
-        console.log('📹 Stream tracks:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, id: t.id })));
-        remoteStreamRef.current = stream;
-        setRemoteStream(stream);
-      } else if (event.track) {
-        // Fallback: create a stream from the track
-        console.log('✅ Creating stream from track');
-        const stream = new MediaStream([event.track]);
-        remoteStreamRef.current = stream;
-        setRemoteStream(stream);
+      // Always use event.track directly - it's the most reliable source
+      if (!event.track) {
+        console.warn(`⚠️ No track in ontrack event from ${participantId}`);
+        return;
       }
       
-      // Also handle track events to add tracks to existing stream
-      if (event.track && remoteStreamRef.current) {
-        const existingTracks = remoteStreamRef.current.getTracks();
-        const trackExists = existingTracks.some(t => t.id === event.track.id);
-        if (!trackExists) {
-          console.log('➕ Adding track to existing remote stream');
-          remoteStreamRef.current.addTrack(event.track);
+      // Wait a bit for track to be ready
+      const track = event.track;
+      
+      // Update remote streams map - always create a new stream object to trigger React re-render
+      setRemoteStreams(prev => {
+        const newMap = new Map(prev);
+        const existingStream = newMap.get(participantId);
+        
+        if (existingStream) {
+          // Get all existing tracks
+          const existingTracks = existingStream.getTracks();
+          
+          // Check if this track already exists
+          const trackExists = existingTracks.some(t => t.id === track.id);
+          
+          if (!trackExists) {
+            console.log(`➕ Adding ${track.kind} track to remote stream for ${participantId}`);
+            // Create a new stream with all existing tracks plus the new track
+            const allTracks = [...existingTracks, track];
+            const updatedStream = new MediaStream(allTracks);
+            console.log(`🔄 Updated stream for ${participantId} with ${allTracks.length} track(s):`, 
+              allTracks.map(t => `${t.kind}(${t.id.substring(0, 8)})`).join(', '));
+            newMap.set(participantId, updatedStream);
+          } else {
+            // Track exists, but create a new stream object anyway to ensure React detects the change
+            // This helps when tracks are updated (e.g., enabled/disabled)
+            const allTracks = existingStream.getTracks();
+            const updatedStream = new MediaStream(allTracks);
+            console.log(`🔄 Refreshed stream for ${participantId} (track already exists, refreshing stream object)`);
+            newMap.set(participantId, updatedStream);
+          }
+        } else {
+          // Create new stream entry from the track
+          const newStream = new MediaStream([track]);
+          console.log(`🆕 Created new stream for ${participantId} with ${track.kind} track`);
+          newMap.set(participantId, newStream);
+        }
+        return newMap;
+      });
+      
+      // Also listen for track state changes
+      const handleTrackEnded = () => {
+        console.log(`⚠️ Track ${track.id.substring(0, 8)} ended for ${participantId}`);
+        // Refresh stream when track ends
+        setRemoteStreams(prev => {
+          const newMap = new Map(prev);
+          const existingStream = newMap.get(participantId);
+          if (existingStream) {
+            const remainingTracks = existingStream.getTracks().filter(t => t.id !== track.id);
+            if (remainingTracks.length > 0) {
+              newMap.set(participantId, new MediaStream(remainingTracks));
+            } else {
+              newMap.delete(participantId);
+            }
+          }
+          return newMap;
+        });
+      };
+      
+      const handleTrackMute = () => {
+        console.log(`🔇 Track ${track.id.substring(0, 8)} muted for ${participantId}`);
+      };
+      
+      const handleTrackUnmute = () => {
+        console.log(`🔊 Track ${track.id.substring(0, 8)} unmuted for ${participantId}`);
+      };
+      
+      track.addEventListener('ended', handleTrackEnded);
+      track.addEventListener('mute', handleTrackMute);
+      track.addEventListener('unmute', handleTrackUnmute);
+      
+      // Cleanup listeners when component unmounts (handled by peer connection cleanup)
+    };
+
+    // Handle connection state changes
+    pc.onconnectionstatechange = () => {
+      console.log(`🔗 Connection state changed for ${participantId}:`, pc.connectionState);
+      setConnectionStates(prev => {
+        const newMap = new Map(prev);
+        newMap.set(participantId, pc.connectionState);
+        return newMap;
+      });
+      
+      if (pc.connectionState === 'connected') {
+        console.log(`✅ WebRTC connection established with ${participantId}!`);
+        // Check if we have tracks and ensure they're in the stream
+        const receivers = pc.getReceivers();
+        console.log(`📊 Receivers for ${participantId}:`, receivers.length);
+        
+        // Get all tracks from receivers
+        const receiverTracks = receivers.map(r => r.track).filter(Boolean);
+        const liveTracks = receiverTracks.filter(t => t.readyState === 'live');
+        
+        if (liveTracks.length > 0) {
+          liveTracks.forEach((track, index) => {
+            console.log(`  Receiver ${index}: ${track.kind} - ${track.id.substring(0, 8)} - enabled: ${track.enabled} - readyState: ${track.readyState}`);
+          });
+          
+          // Always create/update stream with all receiver tracks
+          setRemoteStreams(prev => {
+            const newMap = new Map(prev);
+            const existingStream = newMap.get(participantId);
+            const existingTracks = existingStream?.getTracks() || [];
+            
+            // Combine all tracks, removing duplicates by ID
+            const allTracks = [
+              ...existingTracks.filter(et => !liveTracks.some(rt => rt.id === et.id)),
+              ...liveTracks
+            ];
+            
+            // Always create a new stream object to trigger React re-render
+            const updatedStream = new MediaStream(allTracks);
+            console.log(`🔄 Updated stream for ${participantId} with ${allTracks.length} track(s):`, 
+              allTracks.map(t => `${t.kind}(${t.id.substring(0, 8)})`).join(', '));
+            newMap.set(participantId, updatedStream);
+            return newMap;
+          });
+        } else {
+          console.warn(`⚠️ No live receiver tracks found for ${participantId} even though connection is established`);
+          console.warn(`   Total receivers: ${receivers.length}, Total tracks: ${receiverTracks.length}`);
+          
+          // Try checking multiple times with increasing delays - tracks might arrive later
+          [500, 1000, 2000, 3000].forEach((delay, index) => {
+            setTimeout(() => {
+              const delayedReceivers = pc.getReceivers();
+              const delayedTracks = delayedReceivers.map(r => r.track).filter(Boolean);
+              const liveDelayedTracks = delayedTracks.filter(t => t.readyState === 'live');
+              
+              if (liveDelayedTracks.length > 0) {
+                console.log(`✅ Found ${liveDelayedTracks.length} delayed track(s) for ${participantId} after ${delay}ms`);
+                setRemoteStreams(prev => {
+                  const newMap = new Map(prev);
+                  const existingStream = newMap.get(participantId);
+                  const existingTracks = existingStream?.getTracks() || [];
+                  
+                  // Combine all tracks
+                  const allTracks = [
+                    ...existingTracks.filter(et => !liveDelayedTracks.some(rt => rt.id === et.id)),
+                    ...liveDelayedTracks
+                  ];
+                  
+                  const updatedStream = new MediaStream(allTracks);
+                  console.log(`🔄 Updated stream for ${participantId} with delayed tracks:`, 
+                    allTracks.map(t => `${t.kind}(${t.id.substring(0, 8)})`).join(', '));
+                  newMap.set(participantId, updatedStream);
+                  return newMap;
+                });
+              } else if (index === 3) {
+                // Last attempt failed, try renegotiation
+                console.warn(`⚠️ Still no tracks after ${delay}ms, attempting renegotiation with ${participantId}...`);
+                if (pc.localDescription && pc.remoteDescription) {
+                  createOffer(pc).then(newOffer => {
+                    socket.emit('offer', {
+                      offer: newOffer,
+                      roomId,
+                      targetId: participantId,
+                    });
+                    console.log(`📤 Renegotiation offer sent to ${participantId}`);
+                  }).catch(err => {
+                    console.error(`❌ Failed to create renegotiation offer for ${participantId}:`, err);
+                  });
+                }
+              }
+            }, delay);
+          });
+        }
+      } else if (pc.connectionState === 'failed') {
+        console.error(`❌ WebRTC connection failed with ${participantId}`);
+        setError(`Connection failed with ${participantId}. Please try again.`);
+        
+        // Try to reconnect
+        if (socket && roomId) {
+          setTimeout(() => {
+            console.log(`🔄 Attempting to reconnect with ${participantId}...`);
+            pc.close();
+            peerConnectionsRef.current.delete(participantId);
+            startCallWithParticipant(participantId).catch(err => {
+              console.error(`❌ Failed to reconnect with ${participantId}:`, err);
+            });
+          }, 2000);
         }
       }
     };
-
-        // Handle connection state changes
-        pc.onconnectionstatechange = () => {
-          console.log('🔗 Connection state changed:', pc.connectionState);
-          setConnectionState(pc.connectionState);
-          
-          if (pc.connectionState === 'connected') {
-            console.log('✅ WebRTC connection established!');
-          } else if (pc.connectionState === 'failed') {
-            console.error('❌ WebRTC connection failed');
-          }
-        };
-
-        // Handle ICE candidate
-        pc.onicecandidate = (event) => {
-          if (event.candidate && socket) {
-            console.log('🧊 Sending ICE candidate');
-            socket.emit('ice-candidate', {
-              candidate: event.candidate,
-              roomId,
-              targetId: null, // Will be set by server
-            });
-          } else if (!event.candidate) {
-            console.log('✅ All ICE candidates gathered');
-          }
-        };
-
-    // Handle ICE connection state
+    
+    // Also monitor ICE connection state
     pc.oniceconnectionstatechange = () => {
-      console.log('ICE connection state:', pc.iceConnectionState);
-      if (pc.iceConnectionState === 'failed') {
-        setError('Connection failed. Please try again.');
+      console.log(`🧊 ICE connection state for ${participantId}:`, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        console.log(`✅ ICE connection established with ${participantId}`);
+        
+        // When ICE connection is established, check for tracks after a short delay
+        setTimeout(() => {
+          const receivers = pc.getReceivers();
+          const receiverTracks = receivers.map(r => r.track).filter(Boolean);
+          const videoTracks = receiverTracks.filter(t => t.kind === 'video');
+          
+          console.log(`📹 ICE connected for ${participantId}: ${receiverTracks.length} tracks, ${videoTracks.length} video`);
+          
+          if (receiverTracks.length > 0) {
+            setRemoteStreams(prev => {
+              const newMap = new Map(prev);
+              const existingStream = newMap.get(participantId);
+              const existingTracks = existingStream?.getTracks() || [];
+              
+              // Check if we need to add any tracks
+              const missingTracks = receiverTracks.filter(
+                rt => !existingTracks.some(et => et.id === rt.id)
+              );
+              
+              if (missingTracks.length > 0 || !existingStream) {
+                const allTracks = existingStream 
+                  ? [...existingTracks.filter(et => !receiverTracks.some(rt => rt.id === et.id)), ...receiverTracks]
+                  : receiverTracks;
+                
+                const updatedStream = new MediaStream(allTracks);
+                console.log(`🔄 ICE: Updated stream for ${participantId} with ${allTracks.length} track(s)`);
+                newMap.set(participantId, updatedStream);
+              }
+              
+              return newMap;
+            });
+          }
+        }, 500); // Small delay to ensure tracks are ready
+      } else if (pc.iceConnectionState === 'failed') {
+        console.error(`❌ ICE connection failed with ${participantId}`);
       }
     };
 
-    peerConnectionRef.current = pc;
+    // Handle ICE candidate
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socket) {
+        console.log(`🧊 Sending ICE candidate to ${participantId}`);
+        socket.emit('ice-candidate', {
+          candidate: event.candidate,
+          roomId,
+          targetId: participantId, // Send to specific participant
+        });
+      } else if (!event.candidate) {
+        console.log(`✅ All ICE candidates gathered for ${participantId}`);
+      }
+    };
+
+    // Store peer connection
+    peerConnectionsRef.current.set(participantId, pc);
     return pc;
   }, [socket, roomId]);
 
-  // Process queued ICE candidates
-  const processIceCandidateQueue = useCallback(async () => {
-    if (!peerConnectionRef.current || iceCandidateQueueRef.current.length === 0) {
+  // Process queued ICE candidates for a specific participant
+  const processIceCandidateQueue = useCallback(async (participantId) => {
+    const pc = peerConnectionsRef.current.get(participantId);
+    const queue = iceCandidateQueuesRef.current.get(participantId) || [];
+    
+    if (!pc || queue.length === 0) {
       return;
     }
-
-    const pc = peerConnectionRef.current;
     
     // Check if remote description is set
     if (!pc.remoteDescription) {
-      console.log('⏳ Remote description not set yet, keeping candidates in queue');
+      console.log(`⏳ Remote description not set yet for ${participantId}, keeping candidates in queue`);
       return;
     }
 
-    console.log(`📦 Processing ${iceCandidateQueueRef.current.length} queued ICE candidates`);
+    console.log(`📦 Processing ${queue.length} queued ICE candidates for ${participantId}`);
     
     // Process all queued candidates
-    while (iceCandidateQueueRef.current.length > 0) {
-      const candidate = iceCandidateQueueRef.current.shift();
+    const newQueue = [...queue];
+    iceCandidateQueuesRef.current.set(participantId, []);
+    
+    for (const candidate of newQueue) {
       try {
         if (candidate && pc.remoteDescription) {
           await addIceCandidate(pc, candidate);
-          console.log('✅ Added queued ICE candidate');
+          console.log(`✅ Added queued ICE candidate for ${participantId}`);
         }
       } catch (err) {
-        console.error('Error adding queued ICE candidate:', err);
+        console.error(`Error adding queued ICE candidate for ${participantId}:`, err);
         // Don't throw, just log - some candidates might be invalid
       }
     }
   }, []);
 
-  // Start call (create offer)
-  const startCall = useCallback(async () => {
+  // Start call with a specific participant (create offer)
+  const startCallWithParticipant = useCallback(async (participantId) => {
     try {
       if (!socket || !roomId) {
         throw new Error('Socket or room ID not available');
       }
 
-      // Don't create multiple peer connections
-      if (peerConnectionRef.current) {
-        console.log('⚠️ Peer connection already exists, skipping startCall');
+      // Don't create duplicate peer connection for same participant
+      if (peerConnectionsRef.current.has(participantId)) {
+        console.log(`⚠️ Peer connection already exists for ${participantId}, skipping`);
         return;
       }
 
@@ -165,106 +364,160 @@ export function useWebRTC(socket, roomId, localUserId) {
         await initializeLocalStream();
       }
 
-      // Create peer connection
-      const pc = createPeerConnectionInstance();
+      // Create peer connection for this participant
+      const pc = createPeerConnectionInstance(participantId);
 
       // Add local stream to peer connection
       if (localStreamRef.current) {
         addStreamToPeerConnection(pc, localStreamRef.current);
-        console.log('✅ Added local stream to peer connection');
+        console.log(`✅ Added local stream to peer connection for ${participantId}`);
       }
 
       // Create and send offer
-      console.log('📤 Creating and sending offer...');
+      console.log(`📤 Creating and sending offer to ${participantId}...`);
       console.log('📤 Room ID:', roomId);
       const offer = await createOffer(pc);
       console.log('📤 Offer created, type:', offer.type);
       socket.emit('offer', {
         offer,
         roomId,
-        targetId: null, // Server will handle routing
+        targetId: participantId, // Send to specific participant
       });
-      console.log('✅ Offer sent to room:', roomId);
+      console.log(`✅ Offer sent to ${participantId} in room:`, roomId);
 
-      // Send initial media state
-      if (socket && roomId && localStreamRef.current) {
-        const videoTrack = localStreamRef.current.getVideoTracks()[0];
-        const audioTrack = localStreamRef.current.getAudioTracks()[0];
-        socket.emit('media-state', {
-          roomId,
-          videoEnabled: videoTrack?.enabled ?? true,
-          audioEnabled: audioTrack?.enabled ?? true,
-        });
-      }
-
-      setConnectionState('connecting');
+      // Update connection state
+      setConnectionStates(prev => {
+        const newMap = new Map(prev);
+        newMap.set(participantId, 'connecting');
+        return newMap;
+      });
     } catch (err) {
-      console.error('Error starting call:', err);
-      setError(err.message || 'Failed to start call');
+      console.error(`Error starting call with ${participantId}:`, err);
+      setError(err.message || `Failed to start call with ${participantId}`);
     }
   }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance]);
+
+  // Start call with all existing participants
+  const startCall = useCallback(async (participantIds = []) => {
+    if (!socket || !roomId) {
+      throw new Error('Socket or room ID not available');
+    }
+
+    // Initialize local stream if not already done
+    if (!localStreamRef.current) {
+      await initializeLocalStream();
+    }
+
+    // Send initial media state
+    if (socket && roomId && localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      socket.emit('media-state', {
+        roomId,
+        videoEnabled: videoTrack?.enabled ?? true,
+        audioEnabled: audioTrack?.enabled ?? true,
+      });
+    }
+
+    // Create peer connections and send offers to all participants
+    for (const participantId of participantIds) {
+      await startCallWithParticipant(participantId);
+    }
+  }, [socket, roomId, startCallWithParticipant]);
 
   // Handle incoming offer
   const handleOffer = useCallback(async (offer, from) => {
     try {
-      // If we already have a peer connection and we've sent an offer,
-      // we should be waiting for an answer, not handling another offer
-      if (peerConnectionRef.current) {
-        const pc = peerConnectionRef.current;
+      console.log(`📥 Handling incoming offer from: ${from}`);
+      
+      // Check if we already have a peer connection with this participant
+      let pc = peerConnectionsRef.current.get(from);
+      
+      if (pc) {
+        // We already have a peer connection
         if (pc.localDescription && pc.localDescription.type === 'offer') {
-          // We already sent an offer, we're waiting for an answer
-          // This incoming "offer" might actually be an answer that was mislabeled
-          // But more likely, the other side also created an offer
-          console.log('⚠️ Already sent offer, waiting for answer. Ignoring incoming offer from:', from);
-          console.log('💡 If connection fails, both sides may have created offers. Try refreshing.');
+          // We already sent an offer to this participant
+          // This is a "simultaneous offer" scenario - we should handle it by
+          // setting the remote description and creating an answer
+          // This will replace our local offer with an answer
+          console.log(`🔄 Simultaneous offer detected with ${from}. Setting remote description and creating answer...`);
+          
+          try {
+            // Set the remote description (their offer)
+            await setRemoteDescriptionUtil(pc, offer);
+            console.log(`✅ Set remote description from ${from}'s offer`);
+            
+            // Create answer (this will replace our local offer)
+            const answer = await createAnswerUtil(pc, offer);
+            console.log(`✅ Created answer to ${from}'s offer`);
+            
+            // Send the answer
+            socket.emit('answer', {
+              answer,
+              roomId,
+              targetId: from,
+            });
+            console.log(`✅ Answer sent to ${from}`);
+            
+            // Process queued ICE candidates
+            await processIceCandidateQueue(from);
+            
+            return; // Done handling simultaneous offer
+          } catch (err) {
+            console.error(`❌ Error handling simultaneous offer from ${from}:`, err);
+            // If this fails, we might need to recreate the connection
+            // But for now, just log the error
+            return;
+          }
+        } else if (pc.remoteDescription) {
+          // We already have a remote description, ignore duplicate offer
+          console.log(`⚠️ Already have remote description from ${from}, ignoring duplicate offer`);
           return;
+        } else {
+          // We have a peer connection but no descriptions yet - use it
+          console.log(`✅ Reusing existing peer connection with ${from}`);
         }
-        // We have a peer connection but no local description yet
-        // This shouldn't happen, but handle it
-        console.log('⚠️ Already have peer connection without local description, ignoring offer');
-        return;
+      } else {
+        // No peer connection exists, create one
+        if (!localStreamRef.current) {
+          await initializeLocalStream();
+        }
+
+        // Create peer connection for this participant
+        pc = createPeerConnectionInstance(from);
+        console.log(`✅ Created new peer connection for offer from ${from}`);
+
+        if (localStreamRef.current) {
+          addStreamToPeerConnection(pc, localStreamRef.current);
+          console.log(`✅ Added local stream to peer connection for ${from}`);
+        }
       }
 
-      console.log('📥 Handling incoming offer from:', from);
-
-      if (!localStreamRef.current) {
-        await initializeLocalStream();
-      }
-
-      const pc = createPeerConnectionInstance();
-      console.log('✅ Created peer connection for offer');
-
-      if (localStreamRef.current) {
-        addStreamToPeerConnection(pc, localStreamRef.current);
-        console.log('✅ Added local stream to peer connection');
-      }
-
-      // createAnswer will set the remote description, so we don't need to do it here
-      // But we need to process queued candidates after createAnswer sets it
-      console.log('📤 Creating answer to offer from:', from);
+      // createAnswer will set the remote description
+      console.log(`📤 Creating answer to offer from: ${from}`);
       console.log('📤 Offer details:', {
         type: offer?.type,
         sdp: offer?.sdp?.substring(0, 100) + '...',
       });
       
-      const answer = await createAnswer(pc, offer);
-      console.log('✅ Answer created, remote description set');
+      const answer = await createAnswerUtil(pc, offer);
+      console.log(`✅ Answer created for ${from}, remote description set`);
       console.log('📤 Answer details:', {
         type: answer?.type,
         sdp: answer?.sdp?.substring(0, 100) + '...',
       });
       
       // Process any queued ICE candidates now that remote description is set
-      await processIceCandidateQueue();
+      await processIceCandidateQueue(from);
       
-      console.log('📤 Sending answer to:', from);
+      console.log(`📤 Sending answer to: ${from}`);
       console.log('📤 Room ID:', roomId);
       socket.emit('answer', {
         answer,
         roomId,
         targetId: from,
       });
-      console.log('✅ Answer sent to:', from, 'in room:', roomId);
+      console.log(`✅ Answer sent to ${from} in room:`, roomId);
 
       // Send initial media state
       if (socket && roomId && localStreamRef.current) {
@@ -277,69 +530,78 @@ export function useWebRTC(socket, roomId, localUserId) {
         });
       }
 
-      setConnectionState('connecting');
+      // Update connection state
+      setConnectionStates(prev => {
+        const newMap = new Map(prev);
+        newMap.set(from, 'connecting');
+        return newMap;
+      });
     } catch (err) {
-      console.error('Error handling offer:', err);
-      setError(err.message || 'Failed to handle offer');
+      console.error(`Error handling offer from ${from}:`, err);
+      setError(err.message || `Failed to handle offer from ${from}`);
     }
   }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance, processIceCandidateQueue]);
 
   // Handle incoming answer
-  const handleAnswer = useCallback(async (answer) => {
+  const handleAnswer = useCallback(async (answer, from) => {
     try {
-      if (!peerConnectionRef.current) {
-        console.log('⚠️ No peer connection yet, cannot handle answer');
+      const pc = peerConnectionsRef.current.get(from);
+      if (!pc) {
+        console.log(`⚠️ No peer connection yet for ${from}, cannot handle answer`);
         return;
       }
-
-      const pc = peerConnectionRef.current;
       
       // Check if we already have a remote description
       if (pc.remoteDescription) {
-        console.log('⚠️ Remote description already set, ignoring duplicate answer');
+        console.log(`⚠️ Remote description already set for ${from}, ignoring duplicate answer`);
         return;
       }
 
-      console.log('📥 Setting remote description from answer...');
+      console.log(`📥 Setting remote description from answer from ${from}...`);
       await setRemoteDescription(pc, answer);
-      console.log('✅ Remote description set, processing queued ICE candidates');
+      console.log(`✅ Remote description set for ${from}, processing queued ICE candidates`);
       
       // Process any queued ICE candidates now that remote description is set
-      await processIceCandidateQueue();
+      await processIceCandidateQueue(from);
     } catch (err) {
-      console.error('Error handling answer:', err);
-      setError(err.message || 'Failed to handle answer');
+      console.error(`Error handling answer from ${from}:`, err);
+      setError(err.message || `Failed to handle answer from ${from}`);
     }
   }, [processIceCandidateQueue]);
 
   // Handle ICE candidate
-  const handleIceCandidate = useCallback(async (candidate) => {
+  const handleIceCandidate = useCallback(async (candidate, from) => {
     try {
-      if (!peerConnectionRef.current) {
-        console.log('⏳ No peer connection yet, queueing ICE candidate');
-        iceCandidateQueueRef.current.push(candidate);
+      const pc = peerConnectionsRef.current.get(from);
+      if (!pc) {
+        console.log(`⏳ No peer connection yet for ${from}, queueing ICE candidate`);
+        const queue = iceCandidateQueuesRef.current.get(from) || [];
+        queue.push(candidate);
+        iceCandidateQueuesRef.current.set(from, queue);
         return;
       }
 
-      const pc = peerConnectionRef.current;
-
       // Check if remote description is set
       if (!pc.remoteDescription) {
-        console.log('⏳ Remote description not set yet, queueing ICE candidate');
-        iceCandidateQueueRef.current.push(candidate);
+        console.log(`⏳ Remote description not set yet for ${from}, queueing ICE candidate`);
+        const queue = iceCandidateQueuesRef.current.get(from) || [];
+        queue.push(candidate);
+        iceCandidateQueuesRef.current.set(from, queue);
         return;
       }
 
       // Remote description is set, add the candidate immediately
-      console.log('✅ Adding ICE candidate (remote description is set)');
+      console.log(`✅ Adding ICE candidate for ${from} (remote description is set)`);
       await addIceCandidate(pc, candidate);
     } catch (err) {
       // If adding fails, queue it for later (might be a timing issue)
       if (err.name === 'InvalidStateError' || err.message?.includes('remote description')) {
-        console.log('⏳ Queueing ICE candidate due to state error');
-        iceCandidateQueueRef.current.push(candidate);
+        console.log(`⏳ Queueing ICE candidate for ${from} due to state error`);
+        const queue = iceCandidateQueuesRef.current.get(from) || [];
+        queue.push(candidate);
+        iceCandidateQueuesRef.current.set(from, queue);
       } else {
-        console.error('Error handling ICE candidate:', err);
+        console.error(`Error handling ICE candidate from ${from}:`, err);
         // Don't queue invalid candidates
       }
     }
@@ -405,7 +667,42 @@ export function useWebRTC(socket, roomId, localUserId) {
     }
   }, [socket, roomId]);
 
-  // End call
+  // Remove a specific participant
+  const removeParticipant = useCallback((participantId) => {
+    // Close peer connection
+    const pc = peerConnectionsRef.current.get(participantId);
+    if (pc) {
+      pc.close();
+      peerConnectionsRef.current.delete(participantId);
+      console.log(`✅ Closed peer connection for ${participantId}`);
+    }
+
+    // Remove remote stream
+    setRemoteStreams(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(participantId);
+      return newMap;
+    });
+
+    // Remove media state
+    setRemoteMediaStates(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(participantId);
+      return newMap;
+    });
+
+    // Remove connection state
+    setConnectionStates(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(participantId);
+      return newMap;
+    });
+
+    // Clear ICE candidate queue
+    iceCandidateQueuesRef.current.delete(participantId);
+  }, []);
+
+  // End call (close all connections)
   const endCall = useCallback(() => {
     // Stop local stream
     if (localStreamRef.current) {
@@ -414,20 +711,24 @@ export function useWebRTC(socket, roomId, localUserId) {
       setLocalStream(null);
     }
 
-    // Close peer connection
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
+    // Close all peer connections
+    peerConnectionsRef.current.forEach((pc, participantId) => {
+      pc.close();
+      console.log(`✅ Closed peer connection for ${participantId}`);
+    });
+    peerConnectionsRef.current.clear();
 
-    // Clear remote stream
-    remoteStreamRef.current = null;
-    setRemoteStream(null);
+    // Clear all remote streams
+    setRemoteStreams(new Map());
     
-    // Clear ICE candidate queue
-    iceCandidateQueueRef.current = [];
+    // Clear all media states
+    setRemoteMediaStates(new Map());
     
-    setConnectionState('disconnected');
+    // Clear all connection states
+    setConnectionStates(new Map());
+    
+    // Clear all ICE candidate queues
+    iceCandidateQueuesRef.current.clear();
   }, []);
 
   // Cleanup on unmount
@@ -437,56 +738,164 @@ export function useWebRTC(socket, roomId, localUserId) {
     };
   }, [endCall]);
 
-  // Resend offer (useful when another user joins)
-  const resendOffer = useCallback(async () => {
+  // Resend offer to a specific participant (useful when another user joins)
+  const resendOffer = useCallback(async (participantId) => {
     try {
-      if (!peerConnectionRef.current || !socket || !roomId) {
+      const pc = peerConnectionsRef.current.get(participantId);
+      if (!pc || !socket || !roomId) {
+        // If no peer connection exists, create one and send offer
+        if (!pc && participantId) {
+          console.log(`📤 No peer connection for ${participantId}, creating new one...`);
+          await startCallWithParticipant(participantId);
+          return;
+        }
         return;
       }
 
-      const pc = peerConnectionRef.current;
       if (pc.localDescription && pc.localDescription.type === 'offer') {
-        console.log('📤 Resending existing offer...');
+        console.log(`📤 Resending existing offer to ${participantId}...`);
         socket.emit('offer', {
           offer: pc.localDescription,
           roomId,
-          targetId: null,
+          targetId: participantId,
         });
       } else {
         // Create new offer
-        console.log('📤 Creating and sending new offer...');
+        console.log(`📤 Creating and sending new offer to ${participantId}...`);
         const offer = await createOffer(pc);
         socket.emit('offer', {
           offer,
           roomId,
-          targetId: null,
+          targetId: participantId,
         });
       }
     } catch (err) {
-      console.error('Error resending offer:', err);
+      console.error(`Error resending offer to ${participantId}:`, err);
     }
-  }, [socket, roomId, createOffer]);
+  }, [socket, roomId, startCallWithParticipant]);
+
+  // Update remote media state for a specific participant
+  const updateRemoteMediaState = useCallback((participantId, videoEnabled, audioEnabled) => {
+    setRemoteMediaStates(prev => {
+      const newMap = new Map(prev);
+      newMap.set(participantId, { videoEnabled, audioEnabled });
+      return newMap;
+    });
+  }, []);
+
+  // Get peer connections ref (for external access)
+  const getPeerConnections = useCallback(() => {
+    return peerConnectionsRef.current;
+  }, []);
+
+  // Verify and fix missing video tracks for all connected peers
+  const verifyAndFixStreams = useCallback(() => {
+    console.log('🔍 Verifying all peer connections and streams...');
+    const peerConnections = peerConnectionsRef.current;
+    
+    peerConnections.forEach((pc, participantId) => {
+      const connectionState = pc.connectionState;
+      const iceState = pc.iceConnectionState;
+      
+      if (connectionState === 'connected' || iceState === 'connected' || iceState === 'completed') {
+        const receivers = pc.getReceivers();
+        const receiverTracks = receivers.map(r => r.track).filter(Boolean);
+        const liveTracks = receiverTracks.filter(t => t.readyState === 'live');
+        const videoTracks = liveTracks.filter(t => t.kind === 'video');
+        const audioTracks = liveTracks.filter(t => t.kind === 'audio');
+        
+        console.log(`📊 Checking ${participantId}: ${liveTracks.length} live tracks (${videoTracks.length} video, ${audioTracks.length} audio)`);
+        
+        // Always update stream if we have live tracks
+        if (liveTracks.length > 0) {
+          setRemoteStreams(prev => {
+            const newMap = new Map(prev);
+            const existingStream = newMap.get(participantId);
+            const existingTracks = existingStream?.getTracks() || [];
+            const existingLiveTracks = existingTracks.filter(t => t.readyState === 'live');
+            const existingVideoTracks = existingLiveTracks.filter(t => t.kind === 'video');
+            
+            // Check if we need to update
+            const missingTracks = liveTracks.filter(rt => !existingTracks.some(et => et.id === rt.id));
+            
+            if (missingTracks.length > 0 || existingVideoTracks.length === 0 && videoTracks.length > 0) {
+              console.log(`⚠️ Stream issue detected for ${participantId}:`, {
+                hasStream: !!existingStream,
+                existingTracks: existingTracks.length,
+                existingLiveTracks: existingLiveTracks.length,
+                existingVideoTracks: existingVideoTracks.length,
+                receiverTracks: receiverTracks.length,
+                liveTracks: liveTracks.length,
+                receiverVideoTracks: videoTracks.length,
+                missingTracks: missingTracks.length,
+              });
+              
+              // Combine all tracks, prioritizing live receiver tracks
+              const allTracks = [
+                ...existingTracks.filter(et => !liveTracks.some(rt => rt.id === et.id) && et.readyState === 'live'),
+                ...liveTracks
+              ];
+              
+              const updatedStream = new MediaStream(allTracks);
+              console.log(`🔧 Fixed stream for ${participantId} with ${allTracks.length} track(s):`, 
+                allTracks.map(t => `${t.kind}(${t.id.substring(0, 8)})`).join(', '));
+              newMap.set(participantId, updatedStream);
+            }
+            
+            return newMap;
+          });
+        } else if (connectionState === 'connected' || iceState === 'connected' || iceState === 'completed') {
+          // Connection established but no live tracks
+          console.warn(`⚠️ No live tracks for ${participantId} despite connection being established`);
+          console.warn(`   Connection: ${connectionState}, ICE: ${iceState}`);
+          console.warn(`   Receivers: ${receivers.length}, Total tracks: ${receiverTracks.length}`);
+        }
+      } else if (connectionState === 'failed' || iceState === 'failed') {
+        console.error(`❌ Connection failed with ${participantId}: connection=${connectionState}, ice=${iceState}`);
+      }
+    });
+  }, [socket, roomId, startCallWithParticipant, createOffer]);
+
+  // Periodic verification of streams - more frequent for better recovery
+  useEffect(() => {
+    if (!socket || !roomId) return;
+    
+    // Run verification every 2 seconds for faster recovery
+    const verificationInterval = setInterval(() => {
+      verifyAndFixStreams();
+    }, 2000);
+    
+    return () => {
+      clearInterval(verificationInterval);
+    };
+  }, [socket, roomId, verifyAndFixStreams]);
+  
+  // Also verify when connection states change
+  useEffect(() => {
+    verifyAndFixStreams();
+  }, [connectionStates, verifyAndFixStreams]);
 
   return {
     localStream,
-    remoteStream,
+    remoteStreams, // Map<socketId, MediaStream>
     isVideoEnabled,
     isAudioEnabled,
-    remoteVideoEnabled,
-    remoteAudioEnabled,
-    connectionState,
+    remoteMediaStates, // Map<socketId, {videoEnabled, audioEnabled}>
+    connectionStates, // Map<socketId, connectionState>
     error,
     startCall,
+    startCallWithParticipant,
     handleOffer,
     handleAnswer,
     handleIceCandidate,
     toggleVideo,
     toggleAudio,
     endCall,
+    removeParticipant,
     initializeLocalStream,
     resendOffer,
-    setRemoteVideoEnabled,
-    setRemoteAudioEnabled,
+    updateRemoteMediaState,
+    getPeerConnections, // Expose for checking existing connections
   };
 }
 

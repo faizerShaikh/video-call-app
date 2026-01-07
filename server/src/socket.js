@@ -1,6 +1,21 @@
 // Room management
 const rooms = new Map();
 
+// Export function to get active rooms
+export function getActiveRooms() {
+  const activeRooms = [];
+  rooms.forEach((participants, roomId) => {
+    if (participants.size > 0) {
+      activeRooms.push({
+        roomId,
+        participantCount: participants.size,
+        participants: Array.from(participants),
+      });
+    }
+  });
+  return activeRooms.sort((a, b) => b.participantCount - a.participantCount); // Sort by participant count
+}
+
 export function setupSocket(io) {
   // Log all connection attempts
   io.engine.on('connection_error', (err) => {
@@ -222,7 +237,13 @@ export function setupSocket(io) {
           socket.to(roomId).emit('user-left', { socketId: socket.id });
           
           const participantCount = participants.size;
-          io.to(roomId).emit('room-update', { participantCount });
+          // Get list of remaining participants for the room-update event
+          const remainingParticipants = Array.from(participants);
+          io.to(roomId).emit('room-update', { 
+            participantCount,
+            roomId,
+            otherParticipants: remainingParticipants 
+          });
 
           // Clean up empty rooms
           if (participants.size === 0) {
@@ -235,24 +256,51 @@ export function setupSocket(io) {
       });
     });
 
-    // Leave room explicitly
-    socket.on('leave-room', ({ roomId }) => {
-      console.log(`👋 User ${socket.id} leaving room ${roomId}`);
-      
-      socket.leave(roomId);
-      
-      if (rooms.has(roomId)) {
-        rooms.get(roomId).delete(socket.id);
-        socket.to(roomId).emit('user-left', { socketId: socket.id });
-        
-        const participantCount = rooms.get(roomId).size;
-        io.to(roomId).emit('room-update', { participantCount });
-
-        if (rooms.get(roomId).size === 0) {
-          rooms.delete(roomId);
+      // Handle room info request
+      socket.on('get-room-info', ({ roomId: requestedRoomId }) => {
+        const requestedNormalizedRoomId = normalizeRoomId(requestedRoomId);
+        if (rooms.has(requestedNormalizedRoomId)) {
+          const participants = rooms.get(requestedNormalizedRoomId);
+          const otherParticipants = Array.from(participants).filter(id => id !== socket.id);
+          socket.emit('room-update', {
+            participantCount: participants.size,
+            roomId: requestedNormalizedRoomId,
+            otherParticipants
+          });
         }
-      }
-    });
+      });
+
+      // Handle active rooms request
+      socket.on('get-active-rooms', () => {
+        const activeRooms = getActiveRooms();
+        socket.emit('active-rooms', activeRooms);
+      });
+
+        // Leave room explicitly
+        socket.on('leave-room', ({ roomId }) => {
+          const normalizedRoomId = normalizeRoomId(roomId);
+          console.log(`👋 User ${socket.id} leaving room ${normalizedRoomId}`);
+          
+          socket.leave(normalizedRoomId);
+          
+          if (rooms.has(normalizedRoomId)) {
+            rooms.get(normalizedRoomId).delete(socket.id);
+            socket.to(normalizedRoomId).emit('user-left', { socketId: socket.id });
+            
+            const participantCount = rooms.get(normalizedRoomId).size;
+            // Get list of remaining participants for the room-update event
+            const remainingParticipants = Array.from(rooms.get(normalizedRoomId));
+            io.to(normalizedRoomId).emit('room-update', { 
+              participantCount,
+              roomId: normalizedRoomId,
+              otherParticipants: remainingParticipants 
+            });
+
+            if (rooms.get(normalizedRoomId).size === 0) {
+              rooms.delete(normalizedRoomId);
+            }
+          }
+        });
   });
 }
 

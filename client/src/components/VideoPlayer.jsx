@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 export function VideoPlayer({ 
@@ -10,38 +10,166 @@ export function VideoPlayer({
   isAudioEnabled = true,
 }) {
   const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [hasVideoTracks, setHasVideoTracks] = useState(false);
 
+  // Monitor stream for video tracks
+  useEffect(() => {
+    if (!stream) {
+      setHasVideoTracks(false);
+      return;
+    }
+
+    const checkTracks = () => {
+      const tracks = stream.getTracks();
+      const videoTracks = tracks.filter(t => t.kind === 'video' && t.readyState === 'live');
+      const hasTracks = videoTracks.length > 0;
+      
+      if (hasTracks !== hasVideoTracks) {
+        console.log('🎥 Video tracks changed:', {
+          streamId: stream.id,
+          hasTracks,
+          videoTracks: videoTracks.length,
+          totalTracks: tracks.length,
+          trackIds: videoTracks.map(t => t.id.substring(0, 8)),
+        });
+        setHasVideoTracks(hasTracks);
+      }
+    };
+
+    // Check immediately
+    checkTracks();
+
+    // Listen for track additions/removals
+    const handleTrackAdded = (event) => {
+      console.log('➕ Track added to stream:', event.track.kind, event.track.id.substring(0, 8));
+      if (event.track.kind === 'video') {
+        checkTracks();
+      }
+    };
+
+    const handleTrackRemoved = (event) => {
+      console.log('➖ Track removed from stream:', event.track.kind, event.track.id.substring(0, 8));
+      if (event.track.kind === 'video') {
+        checkTracks();
+      }
+    };
+
+    stream.addEventListener('addtrack', handleTrackAdded);
+    stream.addEventListener('removetrack', handleTrackRemoved);
+
+    return () => {
+      stream.removeEventListener('addtrack', handleTrackAdded);
+      stream.removeEventListener('removetrack', handleTrackRemoved);
+    };
+  }, [stream, hasVideoTracks]);
+
+  // Update video element when stream or tracks change
   useEffect(() => {
     if (!videoRef.current) return;
 
-    if (stream) {
-      console.log('🎥 Setting video srcObject:', {
-        streamId: stream.id,
-        tracks: stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, id: t.id })),
-      });
+    if (stream && hasVideoTracks) {
+      const currentSrcObject = videoRef.current.srcObject;
       
-      // Set srcObject
-      videoRef.current.srcObject = stream;
-      
-      // Play video after a small delay to avoid interruption errors
-      const playPromise = videoRef.current.play();
-      
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            console.log('✅ Video playing successfully');
-          })
-          .catch(err => {
-            // Ignore AbortError - it's usually harmless (video was interrupted by new load)
-            if (err.name !== 'AbortError') {
-              console.error('Error playing video:', err);
-            }
-          });
+      // Only update if the stream reference has changed
+      if (currentSrcObject !== stream) {
+        console.log('🎥 Updating video srcObject:', {
+          streamId: stream.id,
+          previousStreamId: currentSrcObject?.id || 'none',
+          tracks: stream.getTracks().map(t => `${t.kind}(${t.id.substring(0, 8)})`).join(', '),
+        });
+        
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+        
+        // Play video
+        const playPromise = videoRef.current.play();
+        
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              console.log('✅ Video playing successfully');
+            })
+            .catch(err => {
+              // Ignore AbortError - it's usually harmless (video was interrupted by new load)
+              if (err.name !== 'AbortError') {
+                console.error('❌ Error playing video:', err);
+              }
+            });
+        }
+      } else {
+        // Same stream, but check if tracks are still there
+        const tracks = stream.getTracks();
+        const videoTracks = tracks.filter(t => t.kind === 'video' && t.readyState === 'live');
+        if (videoTracks.length === 0 && currentSrcObject) {
+          console.warn('⚠️ Stream lost video tracks, clearing srcObject');
+          videoRef.current.srcObject = null;
+          streamRef.current = null;
+        }
       }
     } else {
-      // Clear video when stream is removed
-      videoRef.current.srcObject = null;
+      // Clear video when stream is removed or has no video tracks
+      if (videoRef.current.srcObject) {
+        console.log('🧹 Clearing video srcObject');
+        videoRef.current.srcObject = null;
+        streamRef.current = null;
+      }
     }
+  }, [stream, hasVideoTracks]);
+  
+  // Also listen for track state changes on the video element's stream
+  useEffect(() => {
+    if (!videoRef.current || !stream) return;
+    
+    const videoElement = videoRef.current;
+    
+    const handleLoadedMetadata = () => {
+      console.log('📹 Video metadata loaded');
+    };
+    
+    const handleLoadedData = () => {
+      console.log('📹 Video data loaded');
+    };
+    
+    const handleCanPlay = () => {
+      console.log('📹 Video can play');
+      // Ensure video is playing
+      if (videoElement.paused) {
+        videoElement.play().catch(err => {
+          if (err.name !== 'AbortError') {
+            console.error('Error playing video on canplay:', err);
+          }
+        });
+      }
+    };
+    
+    const handlePlay = () => {
+      console.log('▶️ Video started playing');
+    };
+    
+    const handlePause = () => {
+      console.log('⏸️ Video paused');
+    };
+    
+    const handleError = (e) => {
+      console.error('❌ Video error:', e);
+    };
+    
+    videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+    videoElement.addEventListener('loadeddata', handleLoadedData);
+    videoElement.addEventListener('canplay', handleCanPlay);
+    videoElement.addEventListener('play', handlePlay);
+    videoElement.addEventListener('pause', handlePause);
+    videoElement.addEventListener('error', handleError);
+    
+    return () => {
+      videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      videoElement.removeEventListener('loadeddata', handleLoadedData);
+      videoElement.removeEventListener('canplay', handleCanPlay);
+      videoElement.removeEventListener('play', handlePlay);
+      videoElement.removeEventListener('pause', handlePause);
+      videoElement.removeEventListener('error', handleError);
+    };
   }, [stream]);
 
   return (
@@ -53,11 +181,18 @@ export function VideoPlayer({
         muted={muted || isLocal}
         className="w-full h-full object-cover"
       />
-      {!stream && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+      {(!stream || !hasVideoTracks) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-20">
           <div className="text-center text-white">
             <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-sm">Waiting for video...</p>
+            <p className="text-sm">
+              {!stream ? 'Waiting for video...' : 'Waiting for video tracks...'}
+            </p>
+            {stream && !hasVideoTracks && (
+              <p className="text-xs text-gray-400 mt-2">
+                Stream connected, waiting for video track
+              </p>
+            )}
           </div>
         </div>
       )}

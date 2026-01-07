@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { setupSocket } from './socket.js';
+import { setupSocket, getActiveRooms } from './socket.js';
 
 dotenv.config();
 
@@ -125,6 +125,18 @@ app.get('/health', (req, res) => {
       mode: process.env.NODE_ENV || 'development',
       allowedOrigins: process.env.CORS_ORIGIN || 'all (development)',
     },
+    vercel: isVercel,
+    socketTransports: isVercel ? ['polling'] : ['polling', 'websocket'],
+  });
+});
+
+// Get active rooms endpoint
+app.get('/api/rooms', (req, res) => {
+  const activeRooms = getActiveRooms();
+  res.json({ 
+    rooms: activeRooms,
+    count: activeRooms.length,
+    timestamp: new Date().toISOString(),
   });
 });
 

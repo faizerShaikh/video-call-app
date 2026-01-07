@@ -1,7 +1,11 @@
 import { VideoCall } from '@/components/VideoCall';
+import { Toaster } from 'sonner';
 
 function App() {
-  return <VideoCall />;
+  return <>
+  <Toaster position="bottom-center" richColors />
+  <VideoCall />
+  </>;
 }
 
 export default App;

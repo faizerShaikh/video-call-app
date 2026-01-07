@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { isGetUserMediaSupported, isSecureContext } from '@/utils/webrtc';
+import { LuCopy } from 'react-icons/lu';
+import { toast } from 'sonner';
 
 export function VideoCall() {
   const [roomId, setRoomId] = useState('');
@@ -16,28 +18,31 @@ export function VideoCall() {
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
   const [error, setError] = useState(null);
+  const [activeRooms, setActiveRooms] = useState([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
 
   const { socket, isConnected, error: socketError } = useSocket();
   const {
     localStream,
-    remoteStream,
+    remoteStreams, // Map<socketId, MediaStream>
     isVideoEnabled,
     isAudioEnabled,
-    remoteVideoEnabled,
-    remoteAudioEnabled,
-    connectionState,
+    remoteMediaStates, // Map<socketId, {videoEnabled, audioEnabled}>
+    connectionStates, // Map<socketId, connectionState>
     error: webrtcError,
     startCall,
+    startCallWithParticipant,
     handleOffer,
     handleAnswer,
     handleIceCandidate,
     toggleVideo,
     toggleAudio,
     endCall,
+    removeParticipant,
     initializeLocalStream,
     resendOffer,
-    setRemoteVideoEnabled,
-    setRemoteAudioEnabled,
+    updateRemoteMediaState,
+    getPeerConnections, // Get peer connections map
   } = useWebRTC(socket, roomId, localUserId);
 
   // Normalize room ID (trim and lowercase for consistency)
@@ -46,8 +51,8 @@ export function VideoCall() {
   };
 
   // Join room
-  const handleJoinRoom = async () => {
-    const normalizedRoomId = normalizeRoomId(roomId);
+  const handleJoinRoom = async (roomIdToJoin) => {
+    const normalizedRoomId = normalizeRoomId(roomId || roomIdToJoin);
     
     if (!normalizedRoomId) {
       setError('Please enter a room ID');
@@ -122,13 +127,13 @@ export function VideoCall() {
         type: answer?.type,
         sdp: answer?.sdp?.substring(0, 100) + '...',
       });
-      handleAnswer(answer);
+      handleAnswer(answer, from);
     });
 
     // Handle ICE candidate
     socket.on('ice-candidate', ({ candidate, from }) => {
       console.log('🧊 Received ICE candidate from:', from);
-      handleIceCandidate(candidate);
+      handleIceCandidate(candidate, from);
     });
 
     // Handle media state changes (remote video/audio on/off)
@@ -136,28 +141,40 @@ export function VideoCall() {
       console.log('📹 Media state update received from:', from);
       console.log('📹 Video enabled:', videoEnabled, 'Audio enabled:', audioEnabled);
       
-      if (videoEnabled !== undefined) {
-        console.log('✅ Updating remote video state to:', videoEnabled);
-        setRemoteVideoEnabled(videoEnabled);
-      }
-      if (audioEnabled !== undefined) {
-        console.log('✅ Updating remote audio state to:', audioEnabled);
-        setRemoteAudioEnabled(audioEnabled);
+      if (videoEnabled !== undefined || audioEnabled !== undefined) {
+        updateRemoteMediaState(
+          from,
+          videoEnabled !== undefined ? videoEnabled : true,
+          audioEnabled !== undefined ? audioEnabled : true
+        );
       }
     });
 
     // Handle user joined
     socket.on('user-joined', ({ userId, socketId }) => {
       console.log('👤 User joined:', userId, socketId);
-      // If we're already in a call and another user joins, and we don't have a remote stream,
-      // we should send them an offer (they'll respond with an answer)
-      if (hasJoinedRoom && !remoteStream && connectionState !== 'connected') {
-        console.log('🔄 Another user joined, checking if we need to send offer...');
-        // If we already have a peer connection and sent an offer, resend it
-        // Otherwise, wait for room-joined to handle it
+      // If we're already in a call and another user joins, create a peer connection with them
+      if (hasJoinedRoom) {
+        console.log(`🔄 Another user joined (${socketId}), creating peer connection...`);
+        // Wait a bit for the new user to set up their event handlers
         setTimeout(() => {
-          resendOffer();
-        }, 1000); // Give the new user time to set up their event handlers
+          // Only create connection if we don't already have one with this participant
+          const peerConnections = getPeerConnections();
+          if (!peerConnections.has(socketId)) {
+            console.log(`📞 Creating peer connection with new participant ${socketId}...`);
+            startCallWithParticipant(socketId).catch(err => {
+              console.error(`❌ Failed to create connection with ${socketId}:`, err);
+            });
+          } else {
+            const pc = peerConnections.get(socketId);
+            console.log(`⚠️ Already have peer connection with ${socketId}:`, {
+              connectionState: pc.connectionState,
+              iceConnectionState: pc.iceConnectionState,
+              hasLocalDescription: !!pc.localDescription,
+              hasRemoteDescription: !!pc.remoteDescription,
+            });
+          }
+        }, 1000);
       }
     });
 
@@ -170,6 +187,63 @@ export function VideoCall() {
     socket.on('room-update', ({ participantCount, roomId, otherParticipants }) => {
       console.log('📊 Room update:', { participantCount, roomId, otherParticipants });
       setParticipantCount(participantCount);
+      
+      // Ensure we have peer connections with all participants (safety net)
+      if (hasJoinedRoom && otherParticipants && otherParticipants.length > 0) {
+        console.log('🔍 Verifying peer connections with all participants...');
+        console.log('📋 Other participants:', otherParticipants);
+        console.log('📋 Current peer connections:', Array.from(getPeerConnections().keys()));
+        
+        // Use a longer delay to avoid interfering with initial connection setup
+        setTimeout(() => {
+          const peerConnections = getPeerConnections();
+          const missingConnections = otherParticipants.filter(
+            (participantId) => !peerConnections.has(participantId)
+          );
+          
+          if (missingConnections.length > 0) {
+            console.log(`⚠️ Missing ${missingConnections.length} peer connection(s):`, missingConnections);
+            // Create missing connections sequentially
+            (async () => {
+              for (const participantId of missingConnections) {
+                console.log(`📞 Creating missing connection with ${participantId}...`);
+                try {
+                  await startCallWithParticipant(participantId);
+                  // Small delay between connections
+                  await new Promise(resolve => setTimeout(resolve, 400));
+                } catch (err) {
+                  console.error(`❌ Failed to create connection with ${participantId}:`, err);
+                }
+              }
+            })();
+          } else {
+            console.log('✅ All peer connections exist');
+            
+            // Even if connections exist, verify they're working and have tracks
+            otherParticipants.forEach((participantId) => {
+              const pc = peerConnections.get(participantId);
+              if (pc) {
+                const receivers = pc.getReceivers();
+                const tracks = receivers.map(r => r.track).filter(Boolean);
+                const videoTracks = tracks.filter(t => t.kind === 'video' && t.readyState === 'live');
+                
+                console.log(`📊 Participant ${participantId}:`, {
+                  connectionState: pc.connectionState,
+                  iceConnectionState: pc.iceConnectionState,
+                  receivers: receivers.length,
+                  tracks: tracks.length,
+                  videoTracks: videoTracks.length,
+                });
+                
+                // If connection is established but no video tracks, try to fix it
+                if ((pc.connectionState === 'connected' || pc.iceConnectionState === 'connected') && videoTracks.length === 0) {
+                  console.warn(`⚠️ Participant ${participantId} has connection but no video tracks, will be fixed by verification`);
+                }
+              }
+            });
+          }
+        }, 2000); // Reduced delay for faster recovery
+      }
     });
 
     // Handle room joined confirmation
@@ -186,28 +260,35 @@ export function VideoCall() {
         offerTimeoutRef.current = null;
       }
       
-      // If there are other participants, wait for them to send an offer
-      // Only create our own offer if we don't receive one within 3 seconds
+      // If there are other participants, create peer connections with all of them
       if (participantCount > 1 && otherParticipants && otherParticipants.length > 0) {
-        console.log('👥 Other participants already in room, waiting for offer...');
-        console.log('👥 Other participant IDs:', otherParticipants);
-        // Wait 3 seconds - if no offer received, we'll create one
-        // This gives time for the first user's offer to arrive
+        console.log('👥 Other participants already in room:', otherParticipants);
+        console.log('👥 Creating peer connections with all participants...');
+        
+        // Wait a bit to ensure all participants are ready, then create connections
         offerTimeoutRef.current = setTimeout(() => {
-          // Only start call if we still don't have a remote stream and didn't receive an offer
-          if (!remoteStream && connectionState !== 'connected' && !offerReceivedRef.current) {
-            console.log('⏰ No offer received within 3s, creating our own offer...');
-            startCall();
-          } else if (offerReceivedRef.current) {
-            console.log('✅ Offer received, not creating our own');
-          }
+          // Create peer connections with all existing participants
+          // Use sequential creation to avoid race conditions
+          (async () => {
+            for (const participantId of otherParticipants) {
+              const peerConnections = getPeerConnections();
+              if (!peerConnections.has(participantId)) {
+                console.log(`📞 Creating connection with ${participantId}...`);
+                await startCallWithParticipant(participantId);
+                // Small delay between connections to avoid overwhelming the system
+                await new Promise(resolve => setTimeout(resolve, 200));
+              } else {
+                console.log(`⚠️ Already have connection with ${participantId}, skipping`);
+              }
+            }
+          })();
           offerTimeoutRef.current = null;
-        }, 3000);
+        }, 1000);
       } else {
-        // We're the first one - DON'T create offer yet, wait for another participant
+        // We're the first one - wait for others to join
         // The offer will be sent when another user joins (via user-joined event)
         console.log('👤 First participant, waiting for another participant to join...');
-        console.log('💡 Will send offer when another user joins the room');
+        console.log('💡 Will create peer connections when other users join the room');
       }
     });
 
@@ -237,7 +318,19 @@ export function VideoCall() {
       setError(`Failed to join room: ${message}`);
       setHasJoinedRoom(false);
     });
-  }, [socket, handleOffer, handleAnswer, handleIceCandidate]);
+
+    // Periodic check for missing connections (especially important for 5+ participants)
+    const periodicCheckInterval = setInterval(() => {
+      if (hasJoinedRoom && participantCount > 1 && socket) {
+        // Request room update to get current participant list
+        socket.emit('get-room-info', { roomId });
+      }
+    }, 5000); // Check every 5 seconds
+
+    return () => {
+      clearInterval(periodicCheckInterval);
+    };
+  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections]);
 
   // Display errors
   useEffect(() => {
@@ -252,6 +345,64 @@ export function VideoCall() {
   const generateRoomId = () => {
     const id = Math.random().toString(36).substr(2, 9);
     setRoomId(id);
+  };
+
+  // Fetch active rooms
+  const fetchActiveRooms = async () => {
+    if (!socket || !isConnected) return;
+    
+    setLoadingRooms(true);
+    try {
+      // Request active rooms via socket
+      socket.emit('get-active-rooms');
+    } catch (err) {
+      console.error('Error fetching active rooms:', err);
+    } finally {
+      setLoadingRooms(false);
+    }
+  };
+
+  // Get server URL for API calls
+  const getServerUrl = () => {
+    if (import.meta.env.VITE_SOCKET_URL) {
+      return import.meta.env.VITE_SOCKET_URL;
+    }
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    return `${protocol}//${hostname}:3001`;
+  };
+
+  // Fetch active rooms on mount and when socket connects
+  useEffect(() => {
+    if (socket && isConnected && !hasJoinedRoom) {
+      fetchActiveRooms();
+      // Also set up listener for active rooms response
+      socket.on('active-rooms', (rooms) => {
+        console.log('📋 Active rooms received:', rooms);
+        setActiveRooms(rooms);
+      });
+
+      // Refresh active rooms periodically
+      const interval = setInterval(() => {
+        if (!hasJoinedRoom) {
+          fetchActiveRooms();
+        }
+      }, 5000); // Refresh every 5 seconds
+
+      return () => {
+        socket.off('active-rooms');
+        clearInterval(interval);
+      };
+    }
+  }, [socket, isConnected, hasJoinedRoom]);
+
+  // Join room from active rooms list
+  const joinActiveRoom = (roomIdToJoin) => {
+    setRoomId(roomIdToJoin);
+    // Small delay to ensure state is updated
+    setTimeout(() => {
+      handleJoinRoom(roomIdToJoin);
+    }, 100);
   };
 
   // Check browser support
@@ -350,6 +501,49 @@ export function VideoCall() {
               </div>
             )}
 
+            {/* Active Rooms */}
+            {isConnected && activeRooms.length > 0 && (
+              <div className="space-y-2">
+                <Label>Active Rooms</Label>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {activeRooms.map((room) => (
+                    <button
+                      key={room.roomId}
+                      onClick={() => joinActiveRoom(room.roomId)}
+                      className="w-full p-3 text-left bg-muted hover:bg-muted/80 rounded-md border border-border transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-sm">Room: {room.roomId}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {room.participantCount} participant{room.participantCount !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="sm" className="ml-2">
+                          Join →
+                        </Button>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchActiveRooms}
+                  disabled={loadingRooms}
+                  className="w-full"
+                >
+                  {loadingRooms ? 'Refreshing...' : '🔄 Refresh'}
+                </Button>
+              </div>
+            )}
+
+            {isConnected && activeRooms.length === 0 && (
+              <div className="p-3 bg-muted/50 text-muted-foreground text-sm rounded-md text-center">
+                No active rooms. Create a new room to start!
+              </div>
+            )}
+
             {/* Debug info */}
             {import.meta.env.DEV && (
               <details className="text-xs text-muted-foreground">
@@ -385,7 +579,14 @@ export function VideoCall() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Room: {roomId}</h1>
+            <h1 className="text-2xl flex justify-start items-center  gap-1 font-bold">Room: {roomId}
+              <div className="cursor-pointer ml-2 hover:bg-gray-200 rounded-full p-2 transition-all duration-300" onClick={() => {
+                navigator.clipboard.writeText(roomId);
+                toast.success('Room ID copied to clipboard');
+              }}>
+                <LuCopy className="w-4 h-4 text-muted-foreground hover:text-gray-900" />
+              </div>
+            </h1>
             <p className="text-sm text-muted-foreground">
               {participantCount} participant{participantCount !== 1 ? 's' : ''} in room
             </p>
@@ -402,43 +603,182 @@ export function VideoCall() {
           </div>
         )}
 
-        {/* Video Grid */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Local Video */}
-          <div className="relative">
-            <VideoPlayer
-              stream={localStream}
-              isLocal
-              isVideoEnabled={isVideoEnabled}
-              isAudioEnabled={isAudioEnabled}
-              className="h-full min-h-[300px]"
-            />
-            {!localStream && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 rounded-lg">
-                <div className="text-center text-white">
-                  <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                  <p className="text-sm">Initializing camera...</p>
-                </div>
-              </div>
-            )}
-          </div>
+        {/* Video Grid - Dynamic based on participant count */}
+        {(() => {
+          const totalParticipants = participantCount;
+          
+          // Get all known participant IDs from connection states and remote streams
+          const allKnownParticipantIds = new Set([
+            ...Array.from(connectionStates.keys()),
+            ...Array.from(remoteStreams.keys()),
+          ]);
+          
+          // Create participants array - include local + all known remote participants
+          // This ensures we show all participants even if they don't have streams yet
+          const allParticipants = [
+            { id: localUserId, stream: localStream, isLocal: true },
+            ...Array.from(allKnownParticipantIds).map((id) => ({
+              id,
+              stream: remoteStreams.get(id) || null, // null if no stream yet
+              isLocal: false,
+            }))
+          ];
+          
+          // Sort participants to ensure consistent ordering (local first, then by ID)
+          allParticipants.sort((a, b) => {
+            if (a.isLocal) return -1;
+            if (b.isLocal) return 1;
+            return a.id.localeCompare(b.id);
+          });
 
-          {/* Remote Video */}
-          <div className="relative">
-            {remoteStream ? (
-              <VideoPlayer
-                stream={remoteStream}
-                isVideoEnabled={remoteVideoEnabled}
-                isAudioEnabled={remoteAudioEnabled}
-                className="h-full min-h-[300px]"
-              />
-            ) : (
-              <div className="h-full min-h-[300px] bg-gray-900 rounded-lg flex items-center justify-center">
-                <p className="text-muted-foreground">Waiting for other participant...</p>
-              </div>
-            )}
-          </div>
-        </div>
+          // Calculate optimal grid layout based on participant count
+          const calculateGridLayout = (count) => {
+            if (count === 1) {
+              return { rows: 1, cols: 1, layout: [[1]] };
+            } else if (count === 2) {
+              return { rows: 1, cols: 2, layout: [[2]] };
+            } else if (count === 3) {
+              return { rows: 1, cols: 3, layout: [[3]] };
+            } else if (count === 4) {
+              return { rows: 2, cols: 2, layout: [[2], [2]] };
+            } else if (count === 5) {
+              return { rows: 2, cols: 3, layout: [[3], [2]] }; // 3 in first row, 2 centered in second
+            } else if (count === 6) {
+              return { rows: 2, cols: 3, layout: [[3], [3]] }; // 3:3
+            } else if (count === 7) {
+              return { rows: 2, cols: 4, layout: [[4], [3]] }; // 4:3
+            } else if (count === 8) {
+              return { rows: 2, cols: 4, layout: [[4], [4]] }; // 4:4
+            } else if (count === 9) {
+              return { rows: 3, cols: 3, layout: [[3], [3], [3]] }; // 3:3:3
+            } else {
+              // For 10+ participants, calculate optimal layout
+              // Try to make it as square as possible
+              const sqrt = Math.sqrt(count);
+              const cols = Math.ceil(sqrt);
+              const rows = Math.ceil(count / cols);
+              
+              // Distribute participants across rows
+              const layout = [];
+              let remaining = count;
+              for (let i = 0; i < rows; i++) {
+                const itemsInRow = Math.min(cols, remaining);
+                layout.push([itemsInRow]);
+                remaining -= itemsInRow;
+              }
+              
+              return { rows, cols, layout };
+            }
+          };
+
+          const gridConfig = calculateGridLayout(totalParticipants);
+          
+          // Render participants in grid rows
+          const renderGridRows = () => {
+            const rows = [];
+            let participantIndex = 0;
+            const numRows = gridConfig.rows;
+            const gapSize = 16; // gap-4 = 1rem = 16px
+            
+            for (let rowIndex = 0; rowIndex < gridConfig.layout.length; rowIndex++) {
+              const itemsInRow = gridConfig.layout[rowIndex][0];
+              const rowParticipants = allParticipants.slice(participantIndex, participantIndex + itemsInRow);
+              participantIndex += itemsInRow;
+              
+              // Calculate if this row needs centering (for rows with fewer items)
+              const needsCentering = itemsInRow < gridConfig.cols;
+              
+              // Calculate height per row: (100% - gaps) / number of rows
+              const totalGapHeight = (numRows - 1) * gapSize;
+              const rowHeight = `calc((100% - ${totalGapHeight}px) / ${numRows})`;
+              
+              rows.push(
+                <div
+                  key={rowIndex}
+                  className="grid gap-4 w-full"
+                  style={{
+                    gridTemplateColumns: `repeat(${itemsInRow}, 1fr)`,
+                    maxWidth: needsCentering ? `${(itemsInRow / gridConfig.cols) * 100}%` : '100%',
+                    margin: needsCentering ? '0 auto' : '0',
+                    height: rowHeight,
+                    minHeight: rowHeight,
+                  }}
+                >
+                  {rowParticipants.map((participant) => {
+                    const mediaState = participant.isLocal
+                      ? { videoEnabled: isVideoEnabled, audioEnabled: isAudioEnabled }
+                      : remoteMediaStates.get(participant.id) || { videoEnabled: true, audioEnabled: true };
+                    const connectionState = participant.isLocal
+                      ? 'connected'
+                      : connectionStates.get(participant.id) || 'disconnected';
+                    
+                    return (
+                      <div key={participant.id} className="relative w-full h-full">
+                        <VideoPlayer
+                          stream={participant.stream}
+                          isLocal={participant.isLocal}
+                          isVideoEnabled={mediaState.videoEnabled}
+                          isAudioEnabled={mediaState.audioEnabled}
+                          className="h-full w-full"
+                        />
+                        {!participant.stream && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 rounded-lg">
+                            <div className="text-center text-white">
+                              <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                              <p className="text-sm">
+                                {participant.isLocal ? 'Initializing camera...' : 'Waiting for video...'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        {participant.isLocal && (
+                          <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
+                            You
+                          </div>
+                        )}
+                        {!participant.isLocal && (
+                          <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
+                            {connectionState === 'connected' ? '✓' : '⏳'} {participant.id.substring(0, 8)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Placeholder for missing participants in this row */}
+                  {rowParticipants.length < itemsInRow && (
+                    Array.from({ length: itemsInRow - rowParticipants.length }).map((_, i) => (
+                      <div
+                        key={`placeholder-${rowIndex}-${i}`}
+                        className="w-full h-full bg-gray-900 rounded-lg flex items-center justify-center"
+                      >
+                        <p className="text-muted-foreground text-sm">Waiting...</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              );
+            }
+            
+            return rows;
+          };
+          
+          return (
+            <div 
+              className="flex-1 flex flex-col gap-4"
+              style={{ height: '100%', overflow: 'hidden' }}
+            >
+              {renderGridRows()}
+              
+              {/* Show message if we're waiting for more participants */}
+              {participantCount > allParticipants.length && (
+                <div className="text-center text-muted-foreground text-sm py-2 flex-shrink-0">
+                  Waiting for {participantCount - allParticipants.length} more participant(s)...
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Controls */}
         <Controls
@@ -447,7 +787,8 @@ export function VideoCall() {
           onToggleVideo={toggleVideo}
           onToggleAudio={toggleAudio}
           onEndCall={handleLeaveRoom}
-          connectionState={connectionState}
+          connectionState={Array.from(connectionStates.values()).some(state => state === 'connected') ? 'connected' : Array.from(connectionStates.values()).some(state => state === 'connecting') ? 'connecting' : 'disconnected'}
+          participantCount={participantCount}
         />
       </div>
     </div>
