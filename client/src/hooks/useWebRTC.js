@@ -33,6 +33,10 @@ export function useWebRTC(socket, roomId, localUserId) {
   const localStreamRef = useRef(null);
   // Multiple ICE candidate queues: Map<socketId, RTCIceCandidate[]>
   const iceCandidateQueuesRef = useRef(new Map());
+  // Track connection start times and reconnection attempts: Map<socketId, {startTime, attempts}>
+  const connectionAttemptsRef = useRef(new Map());
+  // Connection timeouts: Map<socketId, timeoutId>
+  const connectionTimeoutsRef = useRef(new Map());
 
   // Initialize local stream
   const initializeLocalStream = useCallback(async () => {
@@ -145,15 +149,29 @@ export function useWebRTC(socket, roomId, localUserId) {
 
     // Handle connection state changes
     pc.onconnectionstatechange = () => {
-      console.log(`🔗 Connection state changed for ${participantId}:`, pc.connectionState);
+      const state = pc.connectionState;
+      console.log(`🔗 Connection state changed for ${participantId}:`, state);
+      
       setConnectionStates(prev => {
         const newMap = new Map(prev);
-        newMap.set(participantId, pc.connectionState);
+        newMap.set(participantId, state);
         return newMap;
       });
       
-      if (pc.connectionState === 'connected') {
+      // Clear any existing timeout for this participant
+      const existingTimeout = connectionTimeoutsRef.current.get(participantId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        connectionTimeoutsRef.current.delete(participantId);
+      }
+      
+      if (state === 'connected') {
         console.log(`✅ WebRTC connection established with ${participantId}!`);
+        setError(null);
+        
+        // Clear connection attempt tracking
+        connectionAttemptsRef.current.delete(participantId);
+        
         // Check if we have tracks and ensure they're in the stream
         const receivers = pc.getReceivers();
         console.log(`📊 Receivers for ${participantId}:`, receivers.length);
@@ -235,21 +253,94 @@ export function useWebRTC(socket, roomId, localUserId) {
             }, delay);
           });
         }
-      } else if (pc.connectionState === 'failed') {
-        console.error(`❌ WebRTC connection failed with ${participantId}`);
-        setError(`Connection failed with ${participantId}. Please try again.`);
+      } else if (state === 'connecting') {
+        console.log(`🔄 Connecting to ${participantId}...`);
         
-        // Try to reconnect
+        // Track connection start time
+        const attemptInfo = connectionAttemptsRef.current.get(participantId) || { startTime: Date.now(), attempts: 0 };
+        if (!connectionAttemptsRef.current.has(participantId)) {
+          connectionAttemptsRef.current.set(participantId, attemptInfo);
+        }
+        
+        // Set timeout for connection (30 seconds)
+        const timeoutId = setTimeout(() => {
+          if (pc.connectionState === 'connecting' || pc.connectionState === 'checking') {
+            console.error(`⏱️ Connection to ${participantId} timed out after 30 seconds`);
+            setError(`Connection timeout with ${participantId}. The connection is taking too long.`);
+            
+            // Close and clean up
+            pc.close();
+            peerConnectionsRef.current.delete(participantId);
+            connectionAttemptsRef.current.delete(participantId);
+            connectionTimeoutsRef.current.delete(participantId);
+            
+            // Don't auto-retry - let user manually retry or wait for better network conditions
+            console.log(`ℹ️ Connection to ${participantId} closed due to timeout. User can retry manually.`);
+          }
+        }, 30000); // 30 second timeout
+        
+        connectionTimeoutsRef.current.set(participantId, timeoutId);
+        
+        // If stuck in connecting for too long, try to renegotiate (after 10 seconds)
+        setTimeout(() => {
+          if (pc.connectionState === 'connecting' && pc.localDescription && pc.remoteDescription) {
+            console.log(`⚠️ Connection to ${participantId} stuck in 'connecting' state, attempting renegotiation...`);
+            createOffer(pc).then(newOffer => {
+              socket.emit('offer', {
+                offer: newOffer,
+                roomId,
+                targetId: participantId,
+              });
+              console.log(`📤 Renegotiation offer sent to ${participantId}`);
+            }).catch(err => {
+              console.error(`❌ Failed to create renegotiation offer for ${participantId}:`, err);
+            });
+          }
+        }, 10000); // Try renegotiation after 10 seconds
+      } else if (state === 'failed') {
+        console.error(`❌ WebRTC connection failed with ${participantId}`);
+        
+        // Get attempt info
+        const attemptInfo = connectionAttemptsRef.current.get(participantId) || { startTime: Date.now(), attempts: 0 };
+        attemptInfo.attempts += 1;
+        connectionAttemptsRef.current.set(participantId, attemptInfo);
+        
+        // Limit reconnection attempts (max 3 attempts)
+        if (attemptInfo.attempts > 3) {
+          console.error(`❌ Max reconnection attempts (3) reached for ${participantId}. Stopping auto-retry.`);
+          setError(`Connection failed with ${participantId} after multiple attempts. Please check your network connection and try again.`);
+          
+          // Clean up
+          pc.close();
+          peerConnectionsRef.current.delete(participantId);
+          connectionAttemptsRef.current.delete(participantId);
+          connectionTimeoutsRef.current.delete(participantId);
+          
+          return; // Don't retry anymore
+        }
+        
+        setError(`Connection failed with ${participantId}. Retrying... (${attemptInfo.attempts}/3)`);
+        
+        // Try to reconnect (with exponential backoff)
         if (socket && roomId) {
+          const retryDelay = Math.min(2000 * attemptInfo.attempts, 10000); // 2s, 4s, 6s, max 10s
           setTimeout(() => {
-            console.log(`🔄 Attempting to reconnect with ${participantId}...`);
+            console.log(`🔄 Attempting to reconnect with ${participantId} (attempt ${attemptInfo.attempts})...`);
             pc.close();
             peerConnectionsRef.current.delete(participantId);
             startCallWithParticipant(participantId).catch(err => {
               console.error(`❌ Failed to reconnect with ${participantId}:`, err);
             });
-          }, 2000);
+          }, retryDelay);
         }
+      } else if (state === 'disconnected') {
+        console.log(`🔌 Connection disconnected with ${participantId}`);
+        // Don't set error for disconnected - it might reconnect
+      } else if (state === 'closed') {
+        console.log(`🔒 Connection closed with ${participantId}`);
+        // Clean up
+        connectionAttemptsRef.current.delete(participantId);
+        connectionTimeoutsRef.current.delete(participantId);
       }
     };
     
@@ -319,6 +410,28 @@ export function useWebRTC(socket, roomId, localUserId) {
           console.warn(`⚠️ ICE checking taking too long for ${participantId} (${elapsed}ms)`);
           console.warn(`   This might indicate NAT/firewall issues`);
           console.warn(`   Consider using TURN servers for better connectivity`);
+        }
+        
+        // Set timeout for ICE checking (25 seconds - slightly less than connection timeout)
+        if (!pc.iceCheckingTimeout) {
+          pc.iceCheckingTimeout = setTimeout(() => {
+            if (pc.iceConnectionState === 'checking') {
+              console.error(`⏱️ ICE checking timed out for ${participantId} after 25 seconds`);
+              // The connection timeout will handle cleanup
+            }
+          }, 25000);
+        }
+      } else if (iceState === 'connected' || iceState === 'completed') {
+        // Clear ICE checking timeout if it exists
+        if (pc.iceCheckingTimeout) {
+          clearTimeout(pc.iceCheckingTimeout);
+          pc.iceCheckingTimeout = null;
+        }
+      } else if (iceState === 'failed') {
+        // Clear ICE checking timeout if it exists
+        if (pc.iceCheckingTimeout) {
+          clearTimeout(pc.iceCheckingTimeout);
+          pc.iceCheckingTimeout = null;
         }
       }
     };

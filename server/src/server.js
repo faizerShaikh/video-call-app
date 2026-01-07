@@ -15,7 +15,7 @@ const httpServer = createServer(app);
 
 // CORS configuration - allow localhost, local network IPs, and common hosting platforms
 const allowedOrigins = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',')
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
   : [
       'http://localhost:5173',
       'https://localhost:5173',
@@ -25,7 +25,17 @@ const allowedOrigins = process.env.CORS_ORIGIN
       /^https?:\/\/.*\.vercel\.app$/,        // Vercel deployments
       /^https?:\/\/.*\.netlify\.app$/,       // Netlify deployments
       /^https?:\/\/.*\.github\.io$/,         // GitHub Pages
+      /^https?:\/\/.*\.railway\.app$/,       // Railway deployments
+      /^https?:\/\/.*\.railway\.xyz$/,       // Railway deployments (alternative domain)
+      /^https?:\/\/.*\.render\.com$/,        // Render deployments
+      /^https?:\/\/.*\.onrender\.com$/,      // Render deployments (alternative domain)
     ];
+
+console.log('🌐 CORS Configuration:', {
+  mode: process.env.NODE_ENV || 'development',
+  customOrigins: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : 'none',
+  defaultPatterns: 'localhost, local IPs, vercel, netlify, github, railway, render',
+});
 
 const io = new Server(httpServer, {
   cors: {

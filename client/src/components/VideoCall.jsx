@@ -369,6 +369,12 @@ export function VideoCall() {
     }
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
+    const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.startsWith('192.168.') && !hostname.startsWith('10.') && !hostname.startsWith('172.');
+    
+    if (isProduction) {
+      console.error('❌ VITE_SOCKET_URL not set in production! API calls will fail.');
+    }
+    
     return `${protocol}//${hostname}:3001`;
   };
 

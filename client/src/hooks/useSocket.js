@@ -5,13 +5,29 @@ import { io } from 'socket.io-client';
 const getSocketUrl = () => {
   // Use environment variable if set (for production/hosted server)
   if (import.meta.env.VITE_SOCKET_URL) {
-    console.log('🌐 Using configured socket URL:', import.meta.env.VITE_SOCKET_URL);
-    return import.meta.env.VITE_SOCKET_URL;
+    const url = import.meta.env.VITE_SOCKET_URL;
+    console.log('🌐 Using configured socket URL from VITE_SOCKET_URL:', url);
+    return url;
   }
   
-  // Otherwise, use the same host as the current page but port 3001 (for local development)
+  // Check if we're in production (not localhost)
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
+  const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.startsWith('192.168.') && !hostname.startsWith('10.') && !hostname.startsWith('172.');
+  
+  if (isProduction) {
+    // In production without VITE_SOCKET_URL, show error
+    console.error('❌ VITE_SOCKET_URL environment variable is not set!');
+    console.error('   This is required in production. Please set it in your deployment platform.');
+    console.error('   Current hostname:', hostname);
+    console.error('   Example: VITE_SOCKET_URL=https://your-server.railway.app');
+    // Still try to construct a URL, but it will likely fail
+    const fallbackUrl = `${protocol}//${hostname}:3001`;
+    console.warn('⚠️  Falling back to:', fallbackUrl, '(this will likely fail)');
+    return fallbackUrl;
+  }
+  
+  // Local development - use same host with port 3001
   const localUrl = `${protocol}//${hostname}:3001`;
   console.log('🌐 Using local socket URL:', localUrl);
   return localUrl;
@@ -30,10 +46,23 @@ export function useSocket() {
     
     // Create socket connection
     // For Vercel/serverless: Use only polling (websockets don't work well with serverless)
-    // For regular servers: Can use ['polling', 'websocket'] with upgrade: true
+    // For Railway/Render: Can use both polling and websocket
     const isVercel = SOCKET_URL.includes('vercel.app') || SOCKET_URL.includes('vercel.com');
+    const isRailway = SOCKET_URL.includes('railway.app') || SOCKET_URL.includes('railway.xyz');
+    const isRender = SOCKET_URL.includes('render.com') || SOCKET_URL.includes('onrender.com');
+    
+    // Use polling only for Vercel, both for Railway/Render/local
     const transports = isVercel ? ['polling'] : ['polling', 'websocket'];
     const upgrade = !isVercel; // Disable upgrade on Vercel
+    
+    console.log('🔌 Socket configuration:', {
+      url: SOCKET_URL,
+      transports,
+      upgrade,
+      isVercel,
+      isRailway,
+      isRender,
+    });
     
     const newSocket = io(SOCKET_URL, {
       transports, // Use only polling on Vercel, polling+websocket elsewhere
