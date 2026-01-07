@@ -15,6 +15,8 @@ export function useWebRTC(socket, roomId, localUserId) {
   const [remoteStream, setRemoteStream] = useState(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(true);
+  const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [connectionState, setConnectionState] = useState('disconnected');
   const [error, setError] = useState(null);
 
@@ -184,6 +186,17 @@ export function useWebRTC(socket, roomId, localUserId) {
       });
       console.log('✅ Offer sent to room:', roomId);
 
+      // Send initial media state
+      if (socket && roomId && localStreamRef.current) {
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        socket.emit('media-state', {
+          roomId,
+          videoEnabled: videoTrack?.enabled ?? true,
+          audioEnabled: audioTrack?.enabled ?? true,
+        });
+      }
+
       setConnectionState('connecting');
     } catch (err) {
       console.error('Error starting call:', err);
@@ -252,6 +265,17 @@ export function useWebRTC(socket, roomId, localUserId) {
         targetId: from,
       });
       console.log('✅ Answer sent to:', from, 'in room:', roomId);
+
+      // Send initial media state
+      if (socket && roomId && localStreamRef.current) {
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        socket.emit('media-state', {
+          roomId,
+          videoEnabled: videoTrack?.enabled ?? true,
+          audioEnabled: audioTrack?.enabled ?? true,
+        });
+      }
 
       setConnectionState('connecting');
     } catch (err) {
@@ -327,10 +351,29 @@ export function useWebRTC(socket, roomId, localUserId) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoEnabled(videoTrack.enabled);
+        const newVideoState = videoTrack.enabled;
+        setIsVideoEnabled(newVideoState);
+        
+        // Notify other participants
+        if (socket && roomId) {
+          const audioTrack = localStreamRef.current.getAudioTracks()[0];
+          const audioState = audioTrack?.enabled ?? true;
+          console.log('📤 Sending media-state: video=', newVideoState, 'audio=', audioState);
+          console.log('📤 Room ID:', roomId);
+          console.log('📤 Socket ID:', socket.id);
+          socket.emit('media-state', {
+            roomId,
+            videoEnabled: newVideoState,
+            audioEnabled: audioState,
+          });
+          console.log('✅ Media-state event emitted');
+        } else {
+          console.warn('⚠️ Cannot send media-state: socket or roomId not available');
+          console.warn('⚠️ Socket:', socket ? 'exists' : 'null', 'RoomId:', roomId || 'empty');
+        }
       }
     }
-  }, []);
+  }, [socket, roomId]);
 
   // Toggle audio
   const toggleAudio = useCallback(() => {
@@ -338,10 +381,29 @@ export function useWebRTC(socket, roomId, localUserId) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioEnabled(audioTrack.enabled);
+        const newAudioState = audioTrack.enabled;
+        setIsAudioEnabled(newAudioState);
+        
+        // Notify other participants
+        if (socket && roomId) {
+          const videoTrack = localStreamRef.current.getVideoTracks()[0];
+          const videoState = videoTrack?.enabled ?? true;
+          console.log('📤 Sending media-state: video=', videoState, 'audio=', newAudioState);
+          console.log('📤 Room ID:', roomId);
+          console.log('📤 Socket ID:', socket.id);
+          socket.emit('media-state', {
+            roomId,
+            videoEnabled: videoState,
+            audioEnabled: newAudioState,
+          });
+          console.log('✅ Media-state event emitted');
+        } else {
+          console.warn('⚠️ Cannot send media-state: socket or roomId not available');
+          console.warn('⚠️ Socket:', socket ? 'exists' : 'null', 'RoomId:', roomId || 'empty');
+        }
       }
     }
-  }, []);
+  }, [socket, roomId]);
 
   // End call
   const endCall = useCallback(() => {
@@ -410,6 +472,8 @@ export function useWebRTC(socket, roomId, localUserId) {
     remoteStream,
     isVideoEnabled,
     isAudioEnabled,
+    remoteVideoEnabled,
+    remoteAudioEnabled,
     connectionState,
     error,
     startCall,
@@ -421,6 +485,8 @@ export function useWebRTC(socket, roomId, localUserId) {
     endCall,
     initializeLocalStream,
     resendOffer,
+    setRemoteVideoEnabled,
+    setRemoteAudioEnabled,
   };
 }
 

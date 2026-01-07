@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { HiOutlinePhoneMissedCall } from 'react-icons/hi';
 
 export function Controls({
   isVideoEnabled,
@@ -107,20 +108,7 @@ export function Controls({
         className="rounded-full w-14 h-14"
         title="End call"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-6 w-6"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M16 16l2 2m0 0l2 2m-2-2l-2 2m2-2l2-2M8 8l-2-2m0 0L4 4m2 2l-2 2m2-2l2 2M8 16l-2 2m0 0L4 20m2-2l-2-2m2 2l2 2"
-          />
-        </svg>
+        <HiOutlinePhoneMissedCall className="h-6 w-6 text-white" />
       </Button>
 
       {/* Connection Status */}

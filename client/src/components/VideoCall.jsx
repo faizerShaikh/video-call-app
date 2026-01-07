@@ -23,6 +23,8 @@ export function VideoCall() {
     remoteStream,
     isVideoEnabled,
     isAudioEnabled,
+    remoteVideoEnabled,
+    remoteAudioEnabled,
     connectionState,
     error: webrtcError,
     startCall,
@@ -34,6 +36,8 @@ export function VideoCall() {
     endCall,
     initializeLocalStream,
     resendOffer,
+    setRemoteVideoEnabled,
+    setRemoteAudioEnabled,
   } = useWebRTC(socket, roomId, localUserId);
 
   // Normalize room ID (trim and lowercase for consistency)
@@ -127,6 +131,21 @@ export function VideoCall() {
       handleIceCandidate(candidate);
     });
 
+    // Handle media state changes (remote video/audio on/off)
+    socket.on('media-state', ({ videoEnabled, audioEnabled, from }) => {
+      console.log('📹 Media state update received from:', from);
+      console.log('📹 Video enabled:', videoEnabled, 'Audio enabled:', audioEnabled);
+      
+      if (videoEnabled !== undefined) {
+        console.log('✅ Updating remote video state to:', videoEnabled);
+        setRemoteVideoEnabled(videoEnabled);
+      }
+      if (audioEnabled !== undefined) {
+        console.log('✅ Updating remote audio state to:', audioEnabled);
+        setRemoteAudioEnabled(audioEnabled);
+      }
+    });
+
     // Handle user joined
     socket.on('user-joined', ({ userId, socketId }) => {
       console.log('👤 User joined:', userId, socketId);
@@ -209,6 +228,7 @@ export function VideoCall() {
       socket.off('room-update');
       socket.off('room-joined');
       socket.off('join-room-error');
+      socket.off('media-state');
     };
 
     // Handle room join error
@@ -389,6 +409,8 @@ export function VideoCall() {
             <VideoPlayer
               stream={localStream}
               isLocal
+              isVideoEnabled={isVideoEnabled}
+              isAudioEnabled={isAudioEnabled}
               className="h-full min-h-[300px]"
             />
             {!localStream && (
@@ -403,17 +425,16 @@ export function VideoCall() {
 
           {/* Remote Video */}
           <div className="relative">
-            <VideoPlayer
-              stream={remoteStream}
-              isLocal={false}
-              muted={false}
-              className="h-full min-h-[300px]"
-            />
-            {!remoteStream && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 rounded-lg">
-                <div className="text-center text-white">
-                  <p className="text-sm">Waiting for other participant...</p>
-                </div>
+            {remoteStream ? (
+              <VideoPlayer
+                stream={remoteStream}
+                isVideoEnabled={remoteVideoEnabled}
+                isAudioEnabled={remoteAudioEnabled}
+                className="h-full min-h-[300px]"
+              />
+            ) : (
+              <div className="h-full min-h-[300px] bg-gray-900 rounded-lg flex items-center justify-center">
+                <p className="text-muted-foreground">Waiting for other participant...</p>
               </div>
             )}
           </div>

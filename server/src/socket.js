@@ -178,6 +178,37 @@ export function setupSocket(io) {
       }
     });
 
+    // Handle media state changes (video/audio on/off)
+    socket.on('media-state', ({ roomId, videoEnabled, audioEnabled }) => {
+      const normalizedRoomId = normalizeRoomId(roomId);
+      if (!normalizedRoomId) {
+        console.error(`❌ Invalid room ID in media-state: ${roomId}`);
+        return;
+      }
+      
+      // Check if socket is in the room
+      const socketRooms = Array.from(socket.rooms);
+      if (!socketRooms.includes(normalizedRoomId)) {
+        console.error(`❌ Socket ${socket.id} not in room ${normalizedRoomId}. Current rooms: ${socketRooms.join(', ')}`);
+        return;
+      }
+      
+      // Get other participants in the room
+      const otherParticipants = rooms.has(normalizedRoomId) 
+        ? Array.from(rooms.get(normalizedRoomId)).filter(id => id !== socket.id)
+        : [];
+      
+      console.log(`📹 Media state from ${socket.id} in room ${normalizedRoomId}: video=${videoEnabled}, audio=${audioEnabled}`);
+      console.log(`👥 Broadcasting to ${otherParticipants.length} other participant(s): ${otherParticipants.join(', ') || 'none'}`);
+      
+      // Broadcast to all others in the room
+      socket.to(normalizedRoomId).emit('media-state', {
+        videoEnabled,
+        audioEnabled,
+        from: socket.id,
+      });
+    });
+
     // Handle disconnection
     socket.on('disconnect', () => {
       console.log(`❌ User disconnected: ${socket.id}`);
