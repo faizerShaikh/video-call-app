@@ -92,7 +92,33 @@ webrtc/
 
 ## 🚀 Running the Application
 
-### Option 1: Use Hosted Server (Recommended)
+### Local Testing (Recommended for Development)
+
+**Terminal 1 - Start the Server:**
+```bash
+cd server
+npm run dev
+```
+
+The server will start on `http://localhost:3001`
+
+**Terminal 2 - Start the Client:**
+```bash
+cd client
+npm run dev
+```
+
+The client will start on `http://localhost:5173` and connect to the local server.
+
+**Test the app:**
+1. Open `http://localhost:5173` in your browser
+2. Open the same URL in another browser tab/window
+3. Join the same room ID in both
+4. You should see both video streams!
+
+See [LOCAL_TESTING.md](./LOCAL_TESTING.md) for detailed testing instructions.
+
+### Option 2: Use Hosted Server
 
 If you have a hosted server (e.g., on Vercel), you can use it directly:
 
@@ -108,24 +134,6 @@ If you have a hosted server (e.g., on Vercel), you can use it directly:
    ```
 
 The client will connect to your hosted server automatically.
-
-### Option 2: Local Development
-
-**Start the Server:**
-```bash
-cd server
-npm run dev
-```
-
-The server will start on `http://localhost:3001`
-
-**Start the Client:**
-```bash
-cd client
-npm run dev
-```
-
-The client will start on `http://localhost:5173` and connect to the local server.
 
 ### Access from Local Network
 
@@ -213,6 +221,16 @@ npx shadcn@latest add input
 - Implement authentication and authorization
 - Add rate limiting to prevent abuse
 - Validate and sanitize all user inputs
+
+## 🚀 Production Deployment
+
+**⚠️ Important**: For production, use a platform that supports persistent WebSocket connections:
+
+- **Recommended**: Railway, Render, or Fly.io (easy deployment, full WebSocket support)
+- **Alternative**: Traditional VM/VPS (DigitalOcean, Linode, etc.)
+- **Not ideal**: Vercel/Netlify (serverless limitations, polling only)
+
+See [DEPLOYMENT_OPTIONS.md](./DEPLOYMENT_OPTIONS.md) for detailed deployment guides.
 
 ## 📚 Resources
 

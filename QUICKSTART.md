@@ -1,6 +1,6 @@
-# Quick Start Guide
+# Quick Start Guide - Local Testing
 
-## 🚀 Get Started in 3 Steps
+## 🚀 Test Locally in 3 Steps
 
 ### 1. Install Dependencies
 

@@ -5,8 +5,35 @@ export function VideoPlayer({ stream, isLocal = false, muted = false, className 
   const videoRef = useRef(null);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
+    if (!videoRef.current) return;
+
+    if (stream) {
+      console.log('🎥 Setting video srcObject:', {
+        streamId: stream.id,
+        tracks: stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, id: t.id })),
+      });
+      
+      // Set srcObject
       videoRef.current.srcObject = stream;
+      
+      // Play video after a small delay to avoid interruption errors
+      const playPromise = videoRef.current.play();
+      
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('✅ Video playing successfully');
+          })
+          .catch(err => {
+            // Ignore AbortError - it's usually harmless (video was interrupted by new load)
+            if (err.name !== 'AbortError') {
+              console.error('Error playing video:', err);
+            }
+          });
+      }
+    } else {
+      // Clear video when stream is removed
+      videoRef.current.srcObject = null;
     }
   }, [stream]);
 

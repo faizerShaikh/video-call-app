@@ -33,6 +33,7 @@ export function VideoCall() {
     toggleAudio,
     endCall,
     initializeLocalStream,
+    resendOffer,
   } = useWebRTC(socket, roomId, localUserId);
 
   // Normalize room ID (trim and lowercase for consistency)
@@ -68,12 +69,9 @@ export function VideoCall() {
       socket.emit('join-room', { roomId: normalizedRoomId, userId: localUserId });
       setHasJoinedRoom(true);
 
-      // Start call after a delay to ensure room join is processed
-      // Also wait a bit longer to see if there are other participants
-      setTimeout(() => {
-        console.log('📞 Starting call in room:', normalizedRoomId);
-        startCall();
-      }, 1000);
+      // Don't start call here - wait for room-joined event which tells us
+      // if there are other participants. The room-joined handler will decide
+      // whether to create an offer or wait for one.
     } catch (err) {
       console.error('Error joining room:', err);
       setError(err.message || 'Failed to join room');
@@ -95,16 +93,31 @@ export function VideoCall() {
   // Socket event handlers
   useEffect(() => {
     if (!socket) return;
+    
+    // Track if we've received an offer to avoid creating duplicate offers
+    const offerReceivedRef = { current: false };
+    const offerTimeoutRef = { current: null };
 
     // Handle incoming offer
     socket.on('offer', ({ offer, from }) => {
       console.log('📥 Received offer from:', from);
+      offerReceivedRef.current = true;
+      // Cancel any pending offer creation
+      if (offerTimeoutRef.current) {
+        clearTimeout(offerTimeoutRef.current);
+        offerTimeoutRef.current = null;
+        console.log('❌ Cancelled pending offer creation - received offer instead');
+      }
       handleOffer(offer, from);
     });
 
     // Handle incoming answer
-    socket.on('answer', ({ answer }) => {
-      console.log('📥 Received answer');
+    socket.on('answer', ({ answer, from }) => {
+      console.log('📥 Received answer from:', from);
+      console.log('📥 Answer details:', {
+        type: answer?.type,
+        sdp: answer?.sdp?.substring(0, 100) + '...',
+      });
       handleAnswer(answer);
     });
 
@@ -117,13 +130,15 @@ export function VideoCall() {
     // Handle user joined
     socket.on('user-joined', ({ userId, socketId }) => {
       console.log('👤 User joined:', userId, socketId);
-      // If we're already in a call and another user joins, we might need to restart
-      // But only if we don't have a remote stream yet and connection is not established
+      // If we're already in a call and another user joins, and we don't have a remote stream,
+      // we should send them an offer (they'll respond with an answer)
       if (hasJoinedRoom && !remoteStream && connectionState !== 'connected') {
-        console.log('🔄 Another user joined, but no remote stream yet. Starting call...');
+        console.log('🔄 Another user joined, checking if we need to send offer...');
+        // If we already have a peer connection and sent an offer, resend it
+        // Otherwise, wait for room-joined to handle it
         setTimeout(() => {
-          startCall();
-        }, 1000);
+          resendOffer();
+        }, 1000); // Give the new user time to set up their event handlers
       }
     });
 
@@ -142,16 +157,50 @@ export function VideoCall() {
     socket.on('room-joined', ({ roomId, participantCount, otherParticipants }) => {
       console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants });
       setParticipantCount(participantCount);
+      
+      // Reset offer received flag
+      offerReceivedRef.current = false;
+      
+      // Clear any existing timeout
+      if (offerTimeoutRef.current) {
+        clearTimeout(offerTimeoutRef.current);
+        offerTimeoutRef.current = null;
+      }
+      
+      // If there are other participants, wait for them to send an offer
+      // Only create our own offer if we don't receive one within 3 seconds
+      if (participantCount > 1 && otherParticipants && otherParticipants.length > 0) {
+        console.log('👥 Other participants already in room, waiting for offer...');
+        console.log('👥 Other participant IDs:', otherParticipants);
+        // Wait 3 seconds - if no offer received, we'll create one
+        // This gives time for the first user's offer to arrive
+        offerTimeoutRef.current = setTimeout(() => {
+          // Only start call if we still don't have a remote stream and didn't receive an offer
+          if (!remoteStream && connectionState !== 'connected' && !offerReceivedRef.current) {
+            console.log('⏰ No offer received within 3s, creating our own offer...');
+            startCall();
+          } else if (offerReceivedRef.current) {
+            console.log('✅ Offer received, not creating our own');
+          }
+          offerTimeoutRef.current = null;
+        }, 3000);
+      } else {
+        // We're the first one - DON'T create offer yet, wait for another participant
+        // The offer will be sent when another user joins (via user-joined event)
+        console.log('👤 First participant, waiting for another participant to join...');
+        console.log('💡 Will send offer when another user joins the room');
+      }
     });
 
-    // Handle room join error
-    socket.on('join-room-error', ({ message }) => {
-      console.error('❌ Room join error:', message);
-      setError(`Failed to join room: ${message}`);
-      setHasJoinedRoom(false);
-    });
-
+    // Cleanup on unmount
     return () => {
+      // Clear any pending timeouts
+      if (offerTimeoutRef.current) {
+        clearTimeout(offerTimeoutRef.current);
+        offerTimeoutRef.current = null;
+      }
+      
+      // Remove all event listeners
       socket.off('offer');
       socket.off('answer');
       socket.off('ice-candidate');
@@ -161,6 +210,13 @@ export function VideoCall() {
       socket.off('room-joined');
       socket.off('join-room-error');
     };
+
+    // Handle room join error
+    socket.on('join-room-error', ({ message }) => {
+      console.error('❌ Room join error:', message);
+      setError(`Failed to join room: ${message}`);
+      setHasJoinedRoom(false);
+    });
   }, [socket, handleOffer, handleAnswer, handleIceCandidate]);
 
   // Display errors

@@ -111,27 +111,59 @@ export function setupSocket(io) {
 
     // Handle WebRTC offer
     socket.on('offer', ({ offer, roomId, targetId }) => {
+      // Normalize room ID
+      const normalizedRoomId = normalizeRoomId(roomId);
+      
+      if (!normalizedRoomId) {
+        console.error(`❌ Invalid room ID in offer: ${roomId}`);
+        return;
+      }
+      
+      // Check if socket is in the room
+      const socketRooms = Array.from(socket.rooms);
+      if (!socketRooms.includes(normalizedRoomId)) {
+        console.error(`❌ Socket ${socket.id} not in room ${normalizedRoomId}. Current rooms: ${socketRooms.join(', ')}`);
+        return;
+      }
+      
+      // Get other participants in the room
+      const otherParticipants = rooms.has(normalizedRoomId) 
+        ? Array.from(rooms.get(normalizedRoomId)).filter(id => id !== socket.id)
+        : [];
+      
       if (targetId) {
         // Send to specific target
-        console.log(`📤 Offer from ${socket.id} to ${targetId} in room ${roomId}`);
+        console.log(`📤 Offer from ${socket.id} to ${targetId} in room ${normalizedRoomId}`);
         socket.to(targetId).emit('offer', { offer, from: socket.id });
       } else {
         // Broadcast to all others in the room
-        console.log(`📤 Offer from ${socket.id} to all in room ${roomId}`);
-        socket.to(roomId).emit('offer', { offer, from: socket.id });
+        console.log(`📤 Offer from ${socket.id} to all in room ${normalizedRoomId}`);
+        console.log(`👥 Other participants in room: ${otherParticipants.join(', ') || 'none'}`);
+        if (otherParticipants.length === 0) {
+          console.warn(`⚠️  No other participants in room ${normalizedRoomId} to send offer to`);
+        }
+        socket.to(normalizedRoomId).emit('offer', { offer, from: socket.id });
       }
     });
 
     // Handle WebRTC answer
     socket.on('answer', ({ answer, roomId, targetId }) => {
+      // Normalize room ID
+      const normalizedRoomId = normalizeRoomId(roomId);
+      
+      if (!normalizedRoomId) {
+        console.error(`❌ Invalid room ID in answer: ${roomId}`);
+        return;
+      }
+      
       if (targetId) {
         // Send to specific target
-        console.log(`📥 Answer from ${socket.id} to ${targetId} in room ${roomId}`);
+        console.log(`📥 Answer from ${socket.id} to ${targetId} in room ${normalizedRoomId}`);
         socket.to(targetId).emit('answer', { answer, from: socket.id });
       } else {
         // Broadcast to all others in the room
-        console.log(`📥 Answer from ${socket.id} to all in room ${roomId}`);
-        socket.to(roomId).emit('answer', { answer, from: socket.id });
+        console.log(`📥 Answer from ${socket.id} to all in room ${normalizedRoomId}`);
+        socket.to(normalizedRoomId).emit('answer', { answer, from: socket.id });
       }
     });
 

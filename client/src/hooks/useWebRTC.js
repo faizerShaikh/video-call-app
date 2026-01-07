@@ -47,11 +47,14 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.log('📹 Received remote track', event);
       console.log('📹 Track streams:', event.streams);
       console.log('📹 Track:', event.track);
+      console.log('📹 Track kind:', event.track?.kind);
+      console.log('📹 Track enabled:', event.track?.enabled);
       
       // Handle both event.streams and event.track
       if (event.streams && event.streams.length > 0) {
         const stream = event.streams[0];
         console.log('✅ Setting remote stream from event.streams[0]');
+        console.log('📹 Stream tracks:', stream.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, id: t.id })));
         remoteStreamRef.current = stream;
         setRemoteStream(stream);
       } else if (event.track) {
@@ -61,24 +64,43 @@ export function useWebRTC(socket, roomId, localUserId) {
         remoteStreamRef.current = stream;
         setRemoteStream(stream);
       }
-    };
-
-    // Handle connection state changes
-    pc.onconnectionstatechange = () => {
-      console.log('Connection state:', pc.connectionState);
-      setConnectionState(pc.connectionState);
-    };
-
-    // Handle ICE candidate
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socket) {
-        socket.emit('ice-candidate', {
-          candidate: event.candidate,
-          roomId,
-          targetId: null, // Will be set by server
-        });
+      
+      // Also handle track events to add tracks to existing stream
+      if (event.track && remoteStreamRef.current) {
+        const existingTracks = remoteStreamRef.current.getTracks();
+        const trackExists = existingTracks.some(t => t.id === event.track.id);
+        if (!trackExists) {
+          console.log('➕ Adding track to existing remote stream');
+          remoteStreamRef.current.addTrack(event.track);
+        }
       }
     };
+
+        // Handle connection state changes
+        pc.onconnectionstatechange = () => {
+          console.log('🔗 Connection state changed:', pc.connectionState);
+          setConnectionState(pc.connectionState);
+          
+          if (pc.connectionState === 'connected') {
+            console.log('✅ WebRTC connection established!');
+          } else if (pc.connectionState === 'failed') {
+            console.error('❌ WebRTC connection failed');
+          }
+        };
+
+        // Handle ICE candidate
+        pc.onicecandidate = (event) => {
+          if (event.candidate && socket) {
+            console.log('🧊 Sending ICE candidate');
+            socket.emit('ice-candidate', {
+              candidate: event.candidate,
+              roomId,
+              targetId: null, // Will be set by server
+            });
+          } else if (!event.candidate) {
+            console.log('✅ All ICE candidates gathered');
+          }
+        };
 
     // Handle ICE connection state
     pc.oniceconnectionstatechange = () => {
@@ -152,13 +174,15 @@ export function useWebRTC(socket, roomId, localUserId) {
 
       // Create and send offer
       console.log('📤 Creating and sending offer...');
+      console.log('📤 Room ID:', roomId);
       const offer = await createOffer(pc);
+      console.log('📤 Offer created, type:', offer.type);
       socket.emit('offer', {
         offer,
         roomId,
         targetId: null, // Server will handle routing
       });
-      console.log('✅ Offer sent');
+      console.log('✅ Offer sent to room:', roomId);
 
       setConnectionState('connecting');
     } catch (err) {
@@ -170,9 +194,21 @@ export function useWebRTC(socket, roomId, localUserId) {
   // Handle incoming offer
   const handleOffer = useCallback(async (offer, from) => {
     try {
-      // If we already have a peer connection, don't create a new one
+      // If we already have a peer connection and we've sent an offer,
+      // we should be waiting for an answer, not handling another offer
       if (peerConnectionRef.current) {
-        console.log('⚠️ Already have peer connection, ignoring offer');
+        const pc = peerConnectionRef.current;
+        if (pc.localDescription && pc.localDescription.type === 'offer') {
+          // We already sent an offer, we're waiting for an answer
+          // This incoming "offer" might actually be an answer that was mislabeled
+          // But more likely, the other side also created an offer
+          console.log('⚠️ Already sent offer, waiting for answer. Ignoring incoming offer from:', from);
+          console.log('💡 If connection fails, both sides may have created offers. Try refreshing.');
+          return;
+        }
+        // We have a peer connection but no local description yet
+        // This shouldn't happen, but handle it
+        console.log('⚠️ Already have peer connection without local description, ignoring offer');
         return;
       }
 
@@ -192,20 +228,30 @@ export function useWebRTC(socket, roomId, localUserId) {
 
       // createAnswer will set the remote description, so we don't need to do it here
       // But we need to process queued candidates after createAnswer sets it
-      console.log('📤 Creating answer...');
+      console.log('📤 Creating answer to offer from:', from);
+      console.log('📤 Offer details:', {
+        type: offer?.type,
+        sdp: offer?.sdp?.substring(0, 100) + '...',
+      });
+      
       const answer = await createAnswer(pc, offer);
       console.log('✅ Answer created, remote description set');
+      console.log('📤 Answer details:', {
+        type: answer?.type,
+        sdp: answer?.sdp?.substring(0, 100) + '...',
+      });
       
       // Process any queued ICE candidates now that remote description is set
       await processIceCandidateQueue();
       
       console.log('📤 Sending answer to:', from);
+      console.log('📤 Room ID:', roomId);
       socket.emit('answer', {
         answer,
         roomId,
         targetId: from,
       });
-      console.log('✅ Answer sent');
+      console.log('✅ Answer sent to:', from, 'in room:', roomId);
 
       setConnectionState('connecting');
     } catch (err) {
@@ -217,12 +263,25 @@ export function useWebRTC(socket, roomId, localUserId) {
   // Handle incoming answer
   const handleAnswer = useCallback(async (answer) => {
     try {
-      if (peerConnectionRef.current) {
-        await setRemoteDescription(peerConnectionRef.current, answer);
-        console.log('✅ Remote description set, processing queued ICE candidates');
-        // Process any queued ICE candidates now that remote description is set
-        await processIceCandidateQueue();
+      if (!peerConnectionRef.current) {
+        console.log('⚠️ No peer connection yet, cannot handle answer');
+        return;
       }
+
+      const pc = peerConnectionRef.current;
+      
+      // Check if we already have a remote description
+      if (pc.remoteDescription) {
+        console.log('⚠️ Remote description already set, ignoring duplicate answer');
+        return;
+      }
+
+      console.log('📥 Setting remote description from answer...');
+      await setRemoteDescription(pc, answer);
+      console.log('✅ Remote description set, processing queued ICE candidates');
+      
+      // Process any queued ICE candidates now that remote description is set
+      await processIceCandidateQueue();
     } catch (err) {
       console.error('Error handling answer:', err);
       setError(err.message || 'Failed to handle answer');
@@ -316,6 +375,36 @@ export function useWebRTC(socket, roomId, localUserId) {
     };
   }, [endCall]);
 
+  // Resend offer (useful when another user joins)
+  const resendOffer = useCallback(async () => {
+    try {
+      if (!peerConnectionRef.current || !socket || !roomId) {
+        return;
+      }
+
+      const pc = peerConnectionRef.current;
+      if (pc.localDescription && pc.localDescription.type === 'offer') {
+        console.log('📤 Resending existing offer...');
+        socket.emit('offer', {
+          offer: pc.localDescription,
+          roomId,
+          targetId: null,
+        });
+      } else {
+        // Create new offer
+        console.log('📤 Creating and sending new offer...');
+        const offer = await createOffer(pc);
+        socket.emit('offer', {
+          offer,
+          roomId,
+          targetId: null,
+        });
+      }
+    } catch (err) {
+      console.error('Error resending offer:', err);
+    }
+  }, [socket, roomId, createOffer]);
+
   return {
     localStream,
     remoteStream,
@@ -331,6 +420,7 @@ export function useWebRTC(socket, roomId, localUserId) {
     toggleAudio,
     endCall,
     initializeLocalStream,
+    resendOffer,
   };
 }
 
