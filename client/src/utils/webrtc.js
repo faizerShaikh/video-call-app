@@ -13,6 +13,12 @@ export const RTC_CONFIG = {
     { urls: 'stun:stun.voipbuster.com' },
     { urls: 'stun:stun.voipstunt.com' },
     // Free TURN servers (for NAT traversal when STUN fails)
+    // Note: Free TURN servers may have rate limits. For production, consider:
+    // 1. Metered.ca free tier (sign up at https://www.metered.ca/stun-turn)
+    // 2. Twilio TURN (paid, very reliable)
+    // 3. Self-hosted coturn server
+    
+    // OpenRelay (free, but may have rate limits)
     {
       urls: 'turn:openrelay.metered.ca:80',
       username: 'openrelayproject',
@@ -25,6 +31,23 @@ export const RTC_CONFIG = {
     },
     {
       urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    
+    // Additional free TURN servers (backup)
+    {
+      urls: 'turn:relay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:relay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:relay.metered.ca:443?transport=tcp',
       username: 'openrelayproject',
       credential: 'openrelayproject',
     },
