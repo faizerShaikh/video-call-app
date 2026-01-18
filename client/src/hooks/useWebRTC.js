@@ -513,6 +513,12 @@ export function useWebRTC(socket, roomId, localUserId) {
         throw new Error('Socket or room ID not available');
       }
 
+      // Prevent creating peer connection with self
+      if (participantId === socket.id) {
+        console.error(`❌ Cannot create peer connection with self: ${participantId} === ${socket.id}`);
+        return;
+      }
+
       // Don't create duplicate peer connection for same participant
       if (peerConnectionsRef.current.has(participantId)) {
         console.log(`⚠️ Peer connection already exists for ${participantId}, skipping`);

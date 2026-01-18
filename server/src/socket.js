@@ -147,6 +147,18 @@ export function setupSocket(io) {
         : [];
       
       if (targetId) {
+        // Prevent sending offer to self
+        if (targetId === socket.id) {
+          console.error(`❌ Cannot send offer to self: ${socket.id} tried to send offer to ${targetId}`);
+          return;
+        }
+        
+        // Check if target is in the room
+        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) {
+          console.error(`❌ Target ${targetId} is not in room ${normalizedRoomId}`);
+          return;
+        }
+        
         // Send to specific target
         console.log(`📤 Offer from ${socket.id} to ${targetId} in room ${normalizedRoomId}`);
         socket.to(targetId).emit('offer', { offer, from: socket.id });
@@ -172,6 +184,18 @@ export function setupSocket(io) {
       }
       
       if (targetId) {
+        // Prevent sending answer to self
+        if (targetId === socket.id) {
+          console.error(`❌ Cannot send answer to self: ${socket.id} tried to send answer to ${targetId}`);
+          return;
+        }
+        
+        // Check if target is in the room
+        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) {
+          console.error(`❌ Target ${targetId} is not in room ${normalizedRoomId}`);
+          return;
+        }
+        
         // Send to specific target
         console.log(`📥 Answer from ${socket.id} to ${targetId} in room ${normalizedRoomId}`);
         socket.to(targetId).emit('answer', { answer, from: socket.id });
@@ -184,12 +208,31 @@ export function setupSocket(io) {
 
     // Handle ICE candidates
     socket.on('ice-candidate', ({ candidate, roomId, targetId }) => {
+      const normalizedRoomId = normalizeRoomId(roomId);
+      
+      if (!normalizedRoomId) {
+        console.error(`❌ Invalid room ID in ice-candidate: ${roomId}`);
+        return;
+      }
+      
       if (targetId) {
+        // Prevent sending ICE candidate to self
+        if (targetId === socket.id) {
+          console.error(`❌ Cannot send ICE candidate to self: ${socket.id} tried to send to ${targetId}`);
+          return;
+        }
+        
+        // Check if target is in the room
+        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) {
+          console.error(`❌ Target ${targetId} is not in room ${normalizedRoomId}`);
+          return;
+        }
+        
         // Send to specific target
         socket.to(targetId).emit('ice-candidate', { candidate, from: socket.id });
       } else {
         // Broadcast to all others in the room
-        socket.to(roomId).emit('ice-candidate', { candidate, from: socket.id });
+        socket.to(normalizedRoomId).emit('ice-candidate', { candidate, from: socket.id });
       }
     });
 

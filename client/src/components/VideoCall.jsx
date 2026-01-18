@@ -153,6 +153,13 @@ export function VideoCall() {
     // Handle user joined
     socket.on('user-joined', ({ userId, socketId }) => {
       console.log('👤 User joined:', userId, socketId);
+      
+      // Skip if this is our own join event
+      if (socketId === socket.id) {
+        console.log(`ℹ️ Ignoring own user-joined event: ${socketId}`);
+        return;
+      }
+      
       // If we're already in a call and another user joins, create a peer connection with them
       if (hasJoinedRoom) {
         console.log(`🔄 Another user joined (${socketId}), creating peer connection...`);
@@ -197,8 +204,11 @@ export function VideoCall() {
         // Use a longer delay to avoid interfering with initial connection setup
         setTimeout(() => {
           const peerConnections = getPeerConnections();
+          // Filter out our own socket ID and participants we already have connections with
           const missingConnections = otherParticipants.filter(
-            (participantId) => !peerConnections.has(participantId)
+            (participantId) => 
+              participantId !== socket.id && // Don't connect to self
+              !peerConnections.has(participantId) // Don't create duplicate connections
           );
           
           if (missingConnections.length > 0) {
@@ -271,6 +281,12 @@ export function VideoCall() {
           // Use sequential creation to avoid race conditions
           (async () => {
             for (const participantId of otherParticipants) {
+              // Skip if trying to connect to self
+              if (participantId === socket.id) {
+                console.warn(`⚠️ Skipping self in otherParticipants: ${participantId}`);
+                continue;
+              }
+              
               const peerConnections = getPeerConnections();
               if (!peerConnections.has(participantId)) {
                 console.log(`📞 Creating connection with ${participantId}...`);
