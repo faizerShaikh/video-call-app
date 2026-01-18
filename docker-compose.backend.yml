@@ -1,8 +1,7 @@
 version: '3.8'
 
-# Full stack docker-compose (Server + Client + MongoDB)
-# For deploying everything together
-# For backend-only, use: docker-compose -f docker-compose.backend.yml
+# Docker Compose for Backend Only (Server + MongoDB)
+# Use this for local development or when deploying backend separately
 
 services:
   server:
@@ -14,9 +13,9 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=${NODE_ENV:-development}
       - PORT=3001
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:80,http://localhost:5173}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173,http://localhost:80}
       - MONGO_URI=${MONGO_URI:-mongodb://admin:changeme@mongodb:27017/webrtc?authSource=admin}
       - MONGO_DB_NAME=${MONGO_DB_NAME:-webrtc}
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
@@ -26,33 +25,15 @@ services:
         condition: service_healthy
     networks:
       - webrtc-network
+    volumes:
+      # Mount source code for development (comment out for production)
+      - ./server/src:/app/src:ro
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 5s
-
-  client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-      args:
-        - VITE_SOCKET_URL=${VITE_SOCKET_URL:-http://localhost:3001}
-    container_name: webrtc-client
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    depends_on:
-      - server
-    networks:
-      - webrtc-network
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+      start_period: 10s
 
   mongodb:
     image: mongo:7.0

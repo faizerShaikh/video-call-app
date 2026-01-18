@@ -3,7 +3,13 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import compression from 'compression';
 import { setupSocket, getActiveRooms } from './socket.js';
+import { connectDatabase } from './config/database.js';
+import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
+import adminRoutes from './routes/admin.js';
 
 dotenv.config();
 
@@ -118,19 +124,59 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 
-app.use(express.json());
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: ["'self'", "wss:", "ws:"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    }
+  }
+}));
 
+// Compression middleware
+app.use(compression());
+
+// Body parser
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Connect to database
+connectDatabase().catch(console.error);
+
+// Routes
 app.get("/", (req, res) => {
-  res.send("Hello World");
+  res.json({ 
+    message: "WebRTC Signaling Server",
+    version: "1.0.0",
+    endpoints: {
+      health: "/health",
+      auth: "/api/auth",
+      users: "/api/users",
+      admin: "/api/admin"
+    }
+  });
 });
 
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/admin', adminRoutes);
+
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  const mongoose = (await import('mongoose')).default;
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  
   res.json({ 
     status: 'ok', 
     message: 'WebRTC signaling server is running',
     timestamp: new Date().toISOString(),
     socketio: 'ready',
+    database: dbStatus,
     cors: {
       mode: process.env.NODE_ENV || 'development',
       allowedOrigins: process.env.CORS_ORIGIN || 'all (development)',

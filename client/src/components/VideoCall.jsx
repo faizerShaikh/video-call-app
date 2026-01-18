@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useSocket } from '@/hooks/useSocket';
 import { useWebRTC } from '@/hooks/useWebRTC';
+import { useAuth } from '@/context/AuthContext';
+import { Header } from '@/components/Header';
 import { VideoPlayer } from './VideoPlayer';
 import { Controls } from './Controls';
 import { Button } from '@/components/ui/button';
@@ -9,18 +12,18 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { isGetUserMediaSupported, isSecureContext } from '@/utils/webrtc';
-import { LuCopy } from 'react-icons/lu';
+import { LuCopy, LuShare2 } from 'react-icons/lu';
 import { toast } from 'sonner';
 
 export function VideoCall() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [roomId, setRoomId] = useState('');
   const [localUserId] = useState(() => `user-${Math.random().toString(36).substr(2, 9)}`);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
   const [error, setError] = useState(null);
-  const [activeRooms, setActiveRooms] = useState([]);
-  const [loadingRooms, setLoadingRooms] = useState(false);
 
+  const { user, logout, isAdmin } = useAuth();
   const { socket, isConnected, error: socketError } = useSocket();
   const {
     localStream,
@@ -97,6 +100,13 @@ export function VideoCall() {
     setRoomId('');
     setParticipantCount(0);
     setError(null);
+    
+    // Clear roomid query parameter from URL
+    if (searchParams.get('roomid')) {
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('roomid');
+      setSearchParams(newSearchParams, { replace: true });
+    }
   };
 
   // Socket event handlers
@@ -363,68 +373,52 @@ export function VideoCall() {
     setRoomId(id);
   };
 
-  // Fetch active rooms
-  const fetchActiveRooms = async () => {
-    if (!socket || !isConnected) return;
-    
-    setLoadingRooms(true);
-    try {
-      // Request active rooms via socket
-      socket.emit('get-active-rooms');
-    } catch (err) {
-      console.error('Error fetching active rooms:', err);
-    } finally {
-      setLoadingRooms(false);
-    }
-  };
-
-  // Get server URL for API calls
-  const getServerUrl = () => {
-    if (import.meta.env.VITE_SOCKET_URL) {
-      return import.meta.env.VITE_SOCKET_URL;
-    }
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
-    const isProduction = hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.startsWith('192.168.') && !hostname.startsWith('10.') && !hostname.startsWith('172.');
-    
-    if (isProduction) {
-      console.error('❌ VITE_SOCKET_URL not set in production! API calls will fail.');
-    }
-    
-    return `${protocol}//${hostname}:3001`;
-  };
-
-  // Fetch active rooms on mount and when socket connects
+  // Check for roomid query parameter and auto-join
   useEffect(() => {
-    if (socket && isConnected && !hasJoinedRoom) {
-      fetchActiveRooms();
-      // Also set up listener for active rooms response
-      socket.on('active-rooms', (rooms) => {
-        console.log('📋 Active rooms received:', rooms);
-        setActiveRooms(rooms);
-      });
-
-      // Refresh active rooms periodically
-      const interval = setInterval(() => {
-        if (!hasJoinedRoom) {
-          fetchActiveRooms();
-        }
-      }, 5000); // Refresh every 5 seconds
-
-      return () => {
-        socket.off('active-rooms');
-        clearInterval(interval);
-      };
+    const roomIdParam = searchParams.get('roomid');
+    if (roomIdParam && !hasJoinedRoom && socket && isConnected) {
+      const normalizedRoomId = normalizeRoomId(roomIdParam);
+      setRoomId(normalizedRoomId);
+      // Small delay to ensure state is updated
+      setTimeout(() => {
+        handleJoinRoom(normalizedRoomId);
+      }, 500);
     }
-  }, [socket, isConnected, hasJoinedRoom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, socket, isConnected, hasJoinedRoom]);
 
-  // Join room from active rooms list
-  const joinActiveRoom = (roomIdToJoin) => {
-    setRoomId(roomIdToJoin);
-    // Small delay to ensure state is updated
-    setTimeout(() => {
-      handleJoinRoom(roomIdToJoin);
-    }, 100);
+  // Generate shareable link
+  const getShareableLink = () => {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/call?roomid=${roomId}`;
+  };
+
+  // Share room link
+  const handleShareRoom = async () => {
+    const shareLink = getShareableLink();
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Join my video call',
+          text: `Join my video call room: ${roomId}`,
+          url: shareLink,
+        });
+      } else {
+        // Fallback: copy to clipboard
+        await navigator.clipboard.writeText(shareLink);
+        toast.success('Room link copied to clipboard!');
+      }
+    } catch (error) {
+      // User cancelled share or error occurred, fallback to clipboard
+      if (error.name !== 'AbortError') {
+        try {
+          await navigator.clipboard.writeText(shareLink);
+          toast.success('Room link copied to clipboard!');
+        } catch (clipboardError) {
+          toast.error('Failed to copy link');
+        }
+      }
+    }
   };
 
   // Check browser support
@@ -442,8 +436,10 @@ export function VideoCall() {
 
   if (!hasJoinedRoom) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Join Video Call</CardTitle>
             <CardDescription>
@@ -523,49 +519,6 @@ export function VideoCall() {
               </div>
             )}
 
-            {/* Active Rooms */}
-            {isConnected && activeRooms.length > 0 && (
-              <div className="space-y-2">
-                <Label>Active Rooms</Label>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {activeRooms.map((room) => (
-                    <button
-                      key={room.roomId}
-                      onClick={() => joinActiveRoom(room.roomId)}
-                      className="w-full p-3 text-left bg-muted hover:bg-muted/80 rounded-md border border-border transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold text-sm">Room: {room.roomId}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {room.participantCount} participant{room.participantCount !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                        <Button variant="ghost" size="sm" className="ml-2">
-                          Join →
-                        </Button>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={fetchActiveRooms}
-                  disabled={loadingRooms}
-                  className="w-full"
-                >
-                  {loadingRooms ? 'Refreshing...' : '🔄 Refresh'}
-                </Button>
-              </div>
-            )}
-
-            {isConnected && activeRooms.length === 0 && (
-              <div className="p-3 bg-muted/50 text-muted-foreground text-sm rounded-md text-center">
-                No active rooms. Create a new room to start!
-              </div>
-            )}
-
             {/* Debug info */}
             {import.meta.env.DEV && (
               <details className="text-xs text-muted-foreground">
@@ -591,32 +544,48 @@ export function VideoCall() {
             </Button>
           </CardContent>
         </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="container mx-auto max-w-7xl h-[calc(100vh-2rem)] flex flex-col gap-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl flex justify-start items-center  gap-1 font-bold">Room: {roomId}
-              <div className="cursor-pointer ml-2 hover:bg-gray-200 rounded-full p-2 transition-all duration-300" onClick={() => {
-                navigator.clipboard.writeText(roomId);
-                toast.success('Room ID copied to clipboard');
-              }}>
-                <LuCopy className="w-4 h-4 text-muted-foreground hover:text-gray-900" />
-              </div>
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {participantCount} participant{participantCount !== 1 ? 's' : ''} in room
-            </p>
+    <div className="min-h-screen bg-background flex flex-col">
+      <Header hideNavigation={hasJoinedRoom} />
+      <div className="flex-1 p-4">
+        <div className="container mx-auto max-w-7xl h-[calc(100vh-4rem-1px)] flex flex-col gap-4">
+          {/* Room Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl flex justify-start items-center gap-1 font-bold">
+                Room: {roomId}
+                <div className="cursor-pointer ml-2 hover:bg-gray-200 rounded-full p-2 transition-all duration-300" onClick={() => {
+                  navigator.clipboard.writeText(roomId);
+                  toast.success('Room ID copied to clipboard');
+                }}>
+                  <LuCopy className="w-4 h-4 text-muted-foreground hover:text-gray-900" />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleShareRoom}
+                  className="ml-2 flex items-center gap-2"
+                  title="Share room link"
+                >
+                  <LuShare2 className="w-4 h-4" />
+                  Share
+                </Button>
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {participantCount} participant{participantCount !== 1 ? 's' : ''} in room
+              </p>
+            </div>
+            <div className="flex items-center gap-2">            
+              <Button variant="outline" onClick={handleLeaveRoom}>
+                Leave Room
+              </Button>
+            </div>
           </div>
-          <Button variant="outline" onClick={handleLeaveRoom}>
-            Leave Room
-          </Button>
-        </div>
 
         {/* Error Display */}
         {error && (
@@ -812,8 +781,8 @@ export function VideoCall() {
           connectionState={Array.from(connectionStates.values()).some(state => state === 'connected') ? 'connected' : Array.from(connectionStates.values()).some(state => state === 'connecting') ? 'connecting' : 'disconnected'}
           participantCount={participantCount}
         />
+        </div>
       </div>
     </div>
   );
 }
-

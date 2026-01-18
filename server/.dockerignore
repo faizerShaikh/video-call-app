@@ -10,3 +10,9 @@ npm-debug.log
 .idea
 *.log
 .DS_Store
+coverage
+.nyc_output
+test
+tests
+*.test.js
+*.spec.js
