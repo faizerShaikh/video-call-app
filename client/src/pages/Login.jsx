@@ -92,7 +92,7 @@ export function Login() {
           <div className="flex justify-center mb-4 pb-4 border-b">
             <img src="/logo.png" alt="Synchro Logo" className="w-auto h-16 object-contain" />
           </div>
-          <CardTitle className="text-3xl">Welcome Back</CardTitle>
+          <CardTitle className="text-3xl">Welcome to Synchro</CardTitle>
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
