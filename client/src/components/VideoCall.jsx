@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useSocket } from '@/hooks/useSocket';
 import { useWebRTC } from '@/hooks/useWebRTC';
@@ -22,6 +22,7 @@ export function VideoCall() {
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
   const [error, setError] = useState(null);
+  const currentRoomIdRef = useRef(null);
 
   const { user, logout, isAdmin } = useAuth();
   const { socket, isConnected, error: socketError } = useSocket();
@@ -77,7 +78,7 @@ export function VideoCall() {
       await initializeLocalStream();
 
       // Join room via socket with normalized room ID
-      console.log('🚪 Joining room:', normalizedRoomId);
+      currentRoomIdRef.current = normalizedRoomId;
       socket.emit('join-room', { roomId: normalizedRoomId, userId: localUserId });
       setHasJoinedRoom(true);
 
@@ -92,6 +93,7 @@ export function VideoCall() {
 
   // Leave room
   const handleLeaveRoom = () => {
+    currentRoomIdRef.current = null;
     if (socket && roomId) {
       socket.emit('leave-room', { roomId });
     }
@@ -112,7 +114,19 @@ export function VideoCall() {
   // Socket event handlers
   useEffect(() => {
     if (!socket) return;
-    
+
+    // Re-join room on reconnect (socket.id changes after disconnect; server forgets us)
+    const onConnect = () => {
+      const roomToRejoin = currentRoomIdRef.current;
+      if (!roomToRejoin) return;
+      endCall();
+      setRoomId(roomToRejoin);
+      setHasJoinedRoom(true);
+      socket.emit('join-room', { roomId: roomToRejoin, userId: localUserId });
+      setError(null);
+    };
+    socket.on('connect', onConnect);
+
     // Track if we've received an offer to avoid creating duplicate offers
     const offerReceivedRef = { current: false };
     const offerTimeoutRef = { current: null };
@@ -320,13 +334,11 @@ export function VideoCall() {
 
     // Cleanup on unmount
     return () => {
-      // Clear any pending timeouts
+      socket.off('connect', onConnect);
       if (offerTimeoutRef.current) {
         clearTimeout(offerTimeoutRef.current);
         offerTimeoutRef.current = null;
       }
-      
-      // Remove all event listeners
       socket.off('offer');
       socket.off('answer');
       socket.off('ice-candidate');

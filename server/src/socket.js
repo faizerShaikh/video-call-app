@@ -1,6 +1,38 @@
 // Room management
 const rooms = new Map();
 
+const isDev = process.env.NODE_ENV !== 'production';
+const log = (...args) => isDev && console.log(...args);
+const logErr = (...args) => console.error(...args);
+
+// Remove socket from room and clean empty rooms; returns true if participant was removed
+function removeSocketFromRoom(io, roomId, socketId) {
+  if (!rooms.has(roomId)) return false;
+  const participants = rooms.get(roomId);
+  if (!participants.has(socketId)) return false;
+  participants.delete(socketId);
+  if (participants.size === 0) {
+    rooms.delete(roomId);
+    log(`🗑️  Room ${roomId} deleted (empty)`);
+  }
+  return true;
+}
+
+// Ensure room only contains sockets that are still connected (fixes ghost participants)
+function pruneRoom(io, roomId) {
+  if (!rooms.has(roomId)) return;
+  const participants = rooms.get(roomId);
+  const toRemove = [];
+  participants.forEach((socketId) => {
+    if (!io.sockets.sockets.has(socketId)) toRemove.push(socketId);
+  });
+  toRemove.forEach((socketId) => {
+    participants.delete(socketId);
+    log(`🧹 Pruned ghost participant ${socketId} from room ${roomId}`);
+  });
+  if (participants.size === 0) rooms.delete(roomId);
+}
+
 // Export function to get active rooms
 export function getActiveRooms() {
   const activeRooms = [];
@@ -17,45 +49,19 @@ export function getActiveRooms() {
 }
 
 export function setupSocket(io) {
+  // Periodic cleanup: remove ghost participants (disconnected sockets still in rooms)
+  const CLEANUP_INTERVAL_MS = 60000; // 1 minute
+  setInterval(() => {
+    rooms.forEach((_, roomId) => pruneRoom(io, roomId));
+  }, CLEANUP_INTERVAL_MS);
+
   // Log all connection attempts
   io.engine.on('connection_error', (err) => {
-    console.error('❌ Socket.io connection error:', err);
-    console.error('Error details:', {
-      message: err.message,
-      type: err.type,
-      description: err.description,
-      context: err.context,
-      req: err.req ? {
-        headers: err.req.headers,
-        url: err.req.url,
-        method: err.req.method,
-        origin: err.req.headers.origin,
-      } : null,
-    });
-  });
-
-  // Log polling requests
-  io.engine.on('request', (req, res) => {
-    if (req.url?.includes('socket.io')) {
-      console.log('📡 Socket.io request:', {
-        method: req.method,
-        url: req.url,
-        origin: req.headers.origin,
-        transport: req._query?.transport || 'unknown',
-      });
-    }
-  });
-
-  // Log transport upgrades
-  io.engine.on('upgrade', (req, socket, head) => {
-    console.log('⬆️  Transport upgrade attempt:', req.headers.origin || 'no origin');
+    logErr('❌ Socket.io connection error:', err.message, err.type);
   });
 
   io.on('connection', (socket) => {
-    console.log(`✅ User connected: ${socket.id}`);
-    console.log(`📡 Transport: ${socket.conn.transport.name}`);
-    console.log(`🌐 Remote address: ${socket.handshake.address}`);
-    console.log(`🔗 Origin: ${socket.handshake.headers.origin}`);
+    log(`✅ User connected: ${socket.id}`);
 
     // Normalize room ID (trim and lowercase)
     const normalizeRoomId = (id) => {
@@ -65,201 +71,121 @@ export function setupSocket(io) {
 
     // Join a room
     socket.on('join-room', ({ roomId, userId }) => {
-      // Normalize room ID to ensure consistency
       const normalizedRoomId = normalizeRoomId(roomId);
-      
       if (!normalizedRoomId) {
-        console.error('❌ Invalid room ID:', roomId);
         socket.emit('join-room-error', { message: 'Invalid room ID' });
         return;
       }
 
-      console.log(`👤 User ${userId} (${socket.id}) joining room "${normalizedRoomId}"`);
-      
+      log(`👤 User ${userId} (${socket.id}) joining room "${normalizedRoomId}"`);
+
+      // Prune ghost participants before we join (ensures room state is accurate)
+      pruneRoom(io, normalizedRoomId);
+
       // Leave any previous rooms this socket might be in
       const previousRooms = Array.from(socket.rooms);
       previousRooms.forEach(prevRoom => {
         if (prevRoom !== socket.id && rooms.has(prevRoom)) {
           socket.leave(prevRoom);
-          rooms.get(prevRoom).delete(socket.id);
-          console.log(`🔄 Left previous room: ${prevRoom}`);
+          removeSocketFromRoom(io, prevRoom, socket.id);
         }
       });
-      
-      // Join the new room
+
       socket.join(normalizedRoomId);
-      
-      // Track room participants
       if (!rooms.has(normalizedRoomId)) {
         rooms.set(normalizedRoomId, new Set());
-        console.log(`🆕 Created new room: ${normalizedRoomId}`);
       }
       rooms.get(normalizedRoomId).add(socket.id);
 
-      // Get list of other participants in the room
       const otherParticipants = Array.from(rooms.get(normalizedRoomId))
-        .filter(id => id !== socket.id);
+        .filter(id => id !== socket.id && io.sockets.sockets.has(id));
 
-      // Notify others in the room
       socket.to(normalizedRoomId).emit('user-joined', { userId, socketId: socket.id });
 
-      // Send current room participants count and room info
       const participantCount = rooms.get(normalizedRoomId).size;
-      io.to(normalizedRoomId).emit('room-update', { 
+      io.to(normalizedRoomId).emit('room-update', {
         participantCount,
         roomId: normalizedRoomId,
-        otherParticipants 
+        otherParticipants,
       });
 
-      // Confirm join to the client
-      socket.emit('room-joined', { 
+      socket.emit('room-joined', {
         roomId: normalizedRoomId,
         participantCount,
-        otherParticipants 
+        otherParticipants,
       });
 
-      console.log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s)`);
-      if (otherParticipants.length > 0) {
-        console.log(`👥 Other participants: ${otherParticipants.join(', ')}`);
-      }
+      log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s)`);
     });
 
     // Handle WebRTC offer
     socket.on('offer', ({ offer, roomId, targetId }) => {
-      // Normalize room ID
       const normalizedRoomId = normalizeRoomId(roomId);
-      
-      if (!normalizedRoomId) {
-        console.error(`❌ Invalid room ID in offer: ${roomId}`);
-        return;
-      }
-      
-      // Check if socket is in the room
-      const socketRooms = Array.from(socket.rooms);
-      if (!socketRooms.includes(normalizedRoomId)) {
-        console.error(`❌ Socket ${socket.id} not in room ${normalizedRoomId}. Current rooms: ${socketRooms.join(', ')}`);
-        return;
-      }
-      
-      // Get other participants in the room
-      const otherParticipants = rooms.has(normalizedRoomId) 
-        ? Array.from(rooms.get(normalizedRoomId)).filter(id => id !== socket.id)
-        : [];
-      
+      if (!normalizedRoomId || !Array.from(socket.rooms).includes(normalizedRoomId)) return;
+
       if (targetId) {
-        // Prevent sending offer to self
-        if (targetId === socket.id) {
-          console.error(`❌ Cannot send offer to self: ${socket.id} tried to send offer to ${targetId}`);
+        if (targetId === socket.id) return;
+        if (!io.sockets.sockets.has(targetId)) {
+          removeSocketFromRoom(io, normalizedRoomId, targetId);
           return;
         }
-        
-        // Check if target is in the room
-        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) {
-          console.error(`❌ Target ${targetId} is not in room ${normalizedRoomId}`);
-          return;
-        }
-        
-        // Send to specific target
-        console.log(`📤 Offer from ${socket.id} to ${targetId} in room ${normalizedRoomId}`);
+        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) return;
+        log(`📤 Offer ${socket.id} → ${targetId}`);
         socket.to(targetId).emit('offer', { offer, from: socket.id });
       } else {
-        // Broadcast to all others in the room
-        console.log(`📤 Offer from ${socket.id} to all in room ${normalizedRoomId}`);
-        console.log(`👥 Other participants in room: ${otherParticipants.join(', ') || 'none'}`);
-        if (otherParticipants.length === 0) {
-          console.warn(`⚠️  No other participants in room ${normalizedRoomId} to send offer to`);
-        }
-        socket.to(normalizedRoomId).emit('offer', { offer, from: socket.id });
+        const roomParticipants = rooms.get(normalizedRoomId);
+        if (!roomParticipants) return;
+        const live = Array.from(roomParticipants).filter(id => id !== socket.id && io.sockets.sockets.has(id));
+        live.forEach((id) => socket.to(id).emit('offer', { offer, from: socket.id }));
       }
     });
 
     // Handle WebRTC answer
     socket.on('answer', ({ answer, roomId, targetId }) => {
-      // Normalize room ID
       const normalizedRoomId = normalizeRoomId(roomId);
-      
-      if (!normalizedRoomId) {
-        console.error(`❌ Invalid room ID in answer: ${roomId}`);
-        return;
-      }
-      
+      if (!normalizedRoomId) return;
       if (targetId) {
-        // Prevent sending answer to self
-        if (targetId === socket.id) {
-          console.error(`❌ Cannot send answer to self: ${socket.id} tried to send answer to ${targetId}`);
+        if (targetId === socket.id) return;
+        if (!io.sockets.sockets.has(targetId)) {
+          removeSocketFromRoom(io, normalizedRoomId, targetId);
           return;
         }
-        
-        // Check if target is in the room
-        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) {
-          console.error(`❌ Target ${targetId} is not in room ${normalizedRoomId}`);
-          return;
-        }
-        
-        // Send to specific target
-        console.log(`📥 Answer from ${socket.id} to ${targetId} in room ${normalizedRoomId}`);
+        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) return;
         socket.to(targetId).emit('answer', { answer, from: socket.id });
       } else {
-        // Broadcast to all others in the room
-        console.log(`📥 Answer from ${socket.id} to all in room ${normalizedRoomId}`);
-        socket.to(normalizedRoomId).emit('answer', { answer, from: socket.id });
+        const roomParticipants = rooms.get(normalizedRoomId);
+        if (!roomParticipants) return;
+        Array.from(roomParticipants)
+          .filter(id => id !== socket.id && io.sockets.sockets.has(id))
+          .forEach((id) => socket.to(id).emit('answer', { answer, from: socket.id }));
       }
     });
 
     // Handle ICE candidates
     socket.on('ice-candidate', ({ candidate, roomId, targetId }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
-      
-      if (!normalizedRoomId) {
-        console.error(`❌ Invalid room ID in ice-candidate: ${roomId}`);
-        return;
-      }
-      
+      if (!normalizedRoomId) return;
       if (targetId) {
-        // Prevent sending ICE candidate to self
-        if (targetId === socket.id) {
-          console.error(`❌ Cannot send ICE candidate to self: ${socket.id} tried to send to ${targetId}`);
+        if (targetId === socket.id) return;
+        if (!io.sockets.sockets.has(targetId)) {
+          removeSocketFromRoom(io, normalizedRoomId, targetId);
           return;
         }
-        
-        // Check if target is in the room
-        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) {
-          console.error(`❌ Target ${targetId} is not in room ${normalizedRoomId}`);
-          return;
-        }
-        
-        // Send to specific target
+        if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(targetId)) return;
         socket.to(targetId).emit('ice-candidate', { candidate, from: socket.id });
       } else {
-        // Broadcast to all others in the room
-        socket.to(normalizedRoomId).emit('ice-candidate', { candidate, from: socket.id });
+        const roomParticipants = rooms.get(normalizedRoomId);
+        if (!roomParticipants) return;
+        Array.from(roomParticipants)
+          .filter(id => id !== socket.id && io.sockets.sockets.has(id))
+          .forEach((id) => socket.to(id).emit('ice-candidate', { candidate, from: socket.id }));
       }
     });
 
     // Handle media state changes (video/audio on/off)
     socket.on('media-state', ({ roomId, videoEnabled, audioEnabled }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
-      if (!normalizedRoomId) {
-        console.error(`❌ Invalid room ID in media-state: ${roomId}`);
-        return;
-      }
-      
-      // Check if socket is in the room
-      const socketRooms = Array.from(socket.rooms);
-      if (!socketRooms.includes(normalizedRoomId)) {
-        console.error(`❌ Socket ${socket.id} not in room ${normalizedRoomId}. Current rooms: ${socketRooms.join(', ')}`);
-        return;
-      }
-      
-      // Get other participants in the room
-      const otherParticipants = rooms.has(normalizedRoomId) 
-        ? Array.from(rooms.get(normalizedRoomId)).filter(id => id !== socket.id)
-        : [];
-      
-      console.log(`📹 Media state from ${socket.id} in room ${normalizedRoomId}: video=${videoEnabled}, audio=${audioEnabled}`);
-      console.log(`👥 Broadcasting to ${otherParticipants.length} other participant(s): ${otherParticipants.join(', ') || 'none'}`);
-      
-      // Broadcast to all others in the room
+      if (!normalizedRoomId || !Array.from(socket.rooms).includes(normalizedRoomId)) return;
       socket.to(normalizedRoomId).emit('media-state', {
         videoEnabled,
         audioEnabled,
@@ -268,82 +194,59 @@ export function setupSocket(io) {
     });
 
     // Handle disconnection
-    socket.on('disconnect', () => {
-      console.log(`❌ User disconnected: ${socket.id}`);
-
-      // Remove from all rooms
-      rooms.forEach((participants, roomId) => {
-        if (participants.has(socket.id)) {
-          participants.delete(socket.id);
-          
-          // Notify others in the room
-          socket.to(roomId).emit('user-left', { socketId: socket.id });
-          
-          const participantCount = participants.size;
-          // Get list of remaining participants for the room-update event
-          const remainingParticipants = Array.from(participants);
-          io.to(roomId).emit('room-update', { 
-            participantCount,
-            roomId,
-            otherParticipants: remainingParticipants 
-          });
-
-          // Clean up empty rooms
-          if (participants.size === 0) {
-            rooms.delete(roomId);
-            console.log(`🗑️  Room ${roomId} deleted (empty)`);
-          } else {
-            console.log(`📊 Room ${roomId} now has ${participantCount} participant(s)`);
-          }
-        }
+    socket.on('disconnect', (reason) => {
+      log(`❌ User disconnected: ${socket.id} (${reason})`);
+      const roomIds = Array.from(socket.rooms).filter((r) => r !== socket.id);
+      roomIds.forEach((roomId) => {
+        if (!removeSocketFromRoom(io, roomId, socket.id)) return;
+        const participants = rooms.get(roomId);
+        const participantCount = participants ? participants.size : 0;
+        const remainingParticipants = participants ? Array.from(participants) : [];
+        io.to(roomId).emit('user-left', { socketId: socket.id });
+        io.to(roomId).emit('room-update', {
+          participantCount,
+          roomId,
+          otherParticipants: remainingParticipants,
+        });
       });
     });
 
-      // Handle room info request
-      socket.on('get-room-info', ({ roomId: requestedRoomId }) => {
-        const requestedNormalizedRoomId = normalizeRoomId(requestedRoomId);
-        if (rooms.has(requestedNormalizedRoomId)) {
-          const participants = rooms.get(requestedNormalizedRoomId);
-          const otherParticipants = Array.from(participants).filter(id => id !== socket.id);
-          socket.emit('room-update', {
-            participantCount: participants.size,
-            roomId: requestedNormalizedRoomId,
-            otherParticipants
-          });
-        }
-      });
-
-      // Handle active rooms request
-      socket.on('get-active-rooms', () => {
-        const activeRooms = getActiveRooms();
-        socket.emit('active-rooms', activeRooms);
-      });
-
-        // Leave room explicitly
-        socket.on('leave-room', ({ roomId }) => {
-          const normalizedRoomId = normalizeRoomId(roomId);
-          console.log(`👋 User ${socket.id} leaving room ${normalizedRoomId}`);
-          
-          socket.leave(normalizedRoomId);
-          
-          if (rooms.has(normalizedRoomId)) {
-            rooms.get(normalizedRoomId).delete(socket.id);
-            socket.to(normalizedRoomId).emit('user-left', { socketId: socket.id });
-            
-            const participantCount = rooms.get(normalizedRoomId).size;
-            // Get list of remaining participants for the room-update event
-            const remainingParticipants = Array.from(rooms.get(normalizedRoomId));
-            io.to(normalizedRoomId).emit('room-update', { 
-              participantCount,
-              roomId: normalizedRoomId,
-              otherParticipants: remainingParticipants 
-            });
-
-            if (rooms.get(normalizedRoomId).size === 0) {
-              rooms.delete(normalizedRoomId);
-            }
-          }
+    socket.on('get-room-info', ({ roomId: requestedRoomId }) => {
+      const requestedNormalizedRoomId = normalizeRoomId(requestedRoomId);
+      pruneRoom(io, requestedNormalizedRoomId);
+      if (rooms.has(requestedNormalizedRoomId)) {
+        const participants = rooms.get(requestedNormalizedRoomId);
+        const otherParticipants = Array.from(participants).filter(
+          (id) => id !== socket.id && io.sockets.sockets.has(id)
+        );
+        socket.emit('room-update', {
+          participantCount: participants.size,
+          roomId: requestedNormalizedRoomId,
+          otherParticipants,
         });
+      }
+    });
+
+    socket.on('get-active-rooms', () => {
+      socket.emit('active-rooms', getActiveRooms());
+    });
+
+    socket.on('leave-room', ({ roomId }) => {
+      const normalizedRoomId = normalizeRoomId(roomId);
+      log(`👋 User ${socket.id} leaving room ${normalizedRoomId}`);
+      socket.leave(normalizedRoomId);
+      if (removeSocketFromRoom(io, normalizedRoomId, socket.id)) {
+        const participants = rooms.get(normalizedRoomId);
+        const participantCount = participants ? participants.size : 0;
+        const remainingParticipants = participants ? Array.from(participants) : [];
+        io.to(normalizedRoomId).emit('user-left', { socketId: socket.id });
+        io.to(normalizedRoomId).emit('room-update', {
+          participantCount,
+          roomId: normalizedRoomId,
+          otherParticipants: remainingParticipants,
+        });
+      }
+    });
   });
 }
 
