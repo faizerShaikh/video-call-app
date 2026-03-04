@@ -9,6 +9,7 @@ import { Rejected } from '@/pages/Rejected';
 import { Suspended } from '@/pages/Suspended';
 import { Profile } from '@/pages/Profile';
 import { VideoCall } from '@/components/VideoCall';
+import { GuestJoin } from '@/pages/GuestJoin';
 import { AdminDashboard } from '@/pages/admin/Dashboard';
 import { UserManagement } from '@/pages/admin/UserManagement';
 import { PendingApprovals } from '@/pages/admin/PendingApprovals';
@@ -27,15 +28,12 @@ function App() {
           <Route path="/pending-approval" element={<PendingApproval />} />
           <Route path="/rejected" element={<Rejected />} />
           <Route path="/suspended" element={<Suspended />} />
+          <Route path="/join/:meetingId" element={<GuestJoin />} />
 
           {/* Protected user routes */}
           <Route
             path="/call"
-            element={
-              <ProtectedRoute>
-                <VideoCall />
-              </ProtectedRoute>
-            }
+            element={<VideoCall />}
           />
           <Route
             path="/profile"

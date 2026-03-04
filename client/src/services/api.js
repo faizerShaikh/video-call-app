@@ -68,4 +68,16 @@ export const adminAPI = {
   getDashboardStats: () => api.get('/api/admin/dashboard/stats'),
 };
 
+// Meeting API
+export const meetingAPI = {
+  createMeeting: (data) => api.post('/api/meetings', data),
+  getMeeting: (meetingId) => api.get(`/api/meetings/${meetingId}`),
+  joinAsGuest: (meetingId, guestName) => 
+    api.post(`/api/meetings/${meetingId}/join`, { guestName }),
+  getUserMeetings: (params) => api.get('/api/meetings', { params }),
+  getMeetingParticipants: (meetingId) => 
+    api.get(`/api/meetings/${meetingId}/participants`),
+  endMeeting: (meetingId) => api.delete(`/api/meetings/${meetingId}`),
+};
+
 export default api;

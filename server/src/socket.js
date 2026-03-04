@@ -1,6 +1,11 @@
 // Room management
 const rooms = new Map();
 
+// Import Meeting model and guest token utilities
+import Meeting from './models/Meeting.js';
+import User from './models/User.js';
+import { verifyGuestToken } from './utils/guestToken.js';
+
 // Export function to get active rooms
 export function getActiveRooms() {
   const activeRooms = [];
@@ -64,7 +69,7 @@ export function setupSocket(io) {
     };
 
     // Join a room
-    socket.on('join-room', ({ roomId, userId }) => {
+    socket.on('join-room', async ({ roomId, userId, guestName, meetingId, guestToken }) => {
       // Normalize room ID to ensure consistency
       const normalizedRoomId = normalizeRoomId(roomId);
       
@@ -74,7 +79,140 @@ export function setupSocket(io) {
         return;
       }
 
-      console.log(`👤 User ${userId} (${socket.id}) joining room "${normalizedRoomId}"`);
+      let meeting = null;
+      let participantType = 'registered';
+      let displayName = userId || 'Unknown';
+      let userName = null; // Will store the actual user name for registered users
+
+      // If meetingId is provided, validate and track in Meeting model
+      if (meetingId) {
+        try {
+          meeting = await Meeting.findOne({ meetingId });
+
+          if (!meeting) {
+            socket.emit('join-room-error', { message: 'Meeting not found' });
+            return;
+          }
+
+          // Check if expired
+          if (meeting.isExpired() && meeting.status === 'active') {
+            await meeting.markExpired();
+            socket.emit('join-room-error', { message: 'This meeting has expired' });
+            return;
+          }
+
+          // Check if meeting can be joined
+          if (!meeting.canJoin()) {
+            socket.emit('join-room-error', { 
+              message: 'This meeting is no longer available',
+              status: meeting.status 
+            });
+            return;
+          }
+
+          // Validate guest token if guest
+          if (guestToken) {
+            try {
+              const decoded = verifyGuestToken(guestToken);
+              if (decoded.meetingId !== meetingId) {
+                socket.emit('join-room-error', { message: 'Invalid guest token for this meeting' });
+                return;
+              }
+              participantType = 'guest';
+              displayName = decoded.guestName || guestName || 'Guest';
+              socket.guestInfo = decoded;
+              socket.isGuest = true;
+            } catch (error) {
+              socket.emit('join-room-error', { message: 'Invalid or expired guest token' });
+              return;
+            }
+          } else if (userId) {
+            // Registered user joining - fetch user name
+            participantType = 'registered';
+            socket.userId = userId;
+            socket.isGuest = false;
+            try {
+              const user = await User.findById(userId);
+              if (user && user.name) {
+                displayName = user.name;
+                userName = user.name;
+              }
+            } catch (error) {
+              console.error('Error fetching user name:', error);
+              // Fallback to userId if name fetch fails
+              displayName = userId;
+            }
+          } else {
+            socket.emit('join-room-error', { message: 'Authentication required' });
+            return;
+          }
+
+          // Store meeting info on socket
+          socket.meetingId = meetingId;
+          socket.participantType = participantType;
+
+          // Add participant to Meeting model
+          const ipAddress = socket.handshake.address;
+          if (participantType === 'registered') {
+            await meeting.addRegisteredParticipant(userId, socket.id);
+            console.log(`👤 Registered user ${userId} (${socket.id}) joining meeting "${meetingId}"`);
+          } else {
+            await meeting.addGuestParticipant(displayName, socket.id, ipAddress);
+            console.log(`👤 Guest "${displayName}" (${socket.id}) joining meeting "${meetingId}"`);
+          }
+        } catch (error) {
+          console.error('Error tracking participant in meeting:', error);
+          socket.emit('join-room-error', { message: 'Failed to join meeting' });
+          return;
+        }
+      } else if (guestToken) {
+        // Guest joining regular room (not a meeting)
+        try {
+          // Try to verify token (might be a simple token for non-meeting rooms)
+          try {
+            const decoded = verifyGuestToken(guestToken);
+            participantType = 'guest';
+            displayName = decoded.guestName || guestName || 'Guest';
+            socket.guestInfo = decoded;
+            socket.isGuest = true;
+          } catch (error) {
+            // If token verification fails, it might be a simple token for regular rooms
+            // Allow it if guestName is provided
+            if (guestName) {
+              participantType = 'guest';
+              displayName = guestName;
+              socket.isGuest = true;
+              socket.guestInfo = { guestName };
+            } else {
+              socket.emit('join-room-error', { message: 'Guest name required' });
+              return;
+            }
+          }
+          console.log(`👤 Guest "${displayName}" (${socket.id}) joining room "${normalizedRoomId}"`);
+        } catch (error) {
+          socket.emit('join-room-error', { message: 'Invalid guest token' });
+          return;
+        }
+      } else if (userId) {
+        // Regular room join (not via meeting link) - registered user
+        participantType = 'registered';
+        socket.userId = userId;
+        socket.isGuest = false;
+        try {
+          const user = await User.findById(userId);
+          if (user && user.name) {
+            displayName = user.name;
+            userName = user.name;
+          }
+        } catch (error) {
+          console.error('Error fetching user name:', error);
+          displayName = userId;
+        }
+        console.log(`👤 User ${displayName} (${userId}) (${socket.id}) joining room "${normalizedRoomId}"`);
+      } else {
+        socket.emit('join-room-error', { message: 'User ID or guest name required' });
+        return;
+      }
       
       // Leave any previous rooms this socket might be in
       const previousRooms = Array.from(socket.rooms);
@@ -89,7 +227,7 @@ export function setupSocket(io) {
       // Join the new room
       socket.join(normalizedRoomId);
       
-      // Track room participants
+      // Track room participants (in-memory for WebRTC)
       if (!rooms.has(normalizedRoomId)) {
         rooms.set(normalizedRoomId, new Set());
         console.log(`🆕 Created new room: ${normalizedRoomId}`);
@@ -101,21 +239,29 @@ export function setupSocket(io) {
         .filter(id => id !== socket.id);
 
       // Notify others in the room
-      socket.to(normalizedRoomId).emit('user-joined', { userId, socketId: socket.id });
+      socket.to(normalizedRoomId).emit('user-joined', { 
+        userId: participantType === 'registered' ? userId : null,
+        userName: participantType === 'registered' ? (userName || displayName) : null,
+        guestName: participantType === 'guest' ? displayName : null,
+        socketId: socket.id,
+        participantType
+      });
 
       // Send current room participants count and room info
       const participantCount = rooms.get(normalizedRoomId).size;
       io.to(normalizedRoomId).emit('room-update', { 
         participantCount,
         roomId: normalizedRoomId,
-        otherParticipants 
+        otherParticipants,
+        meetingId: meetingId || null
       });
 
       // Confirm join to the client
       socket.emit('room-joined', { 
         roomId: normalizedRoomId,
         participantCount,
-        otherParticipants 
+        otherParticipants,
+        meetingId: meetingId || null
       });
 
       console.log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s)`);
@@ -268,10 +414,23 @@ export function setupSocket(io) {
     });
 
     // Handle disconnection
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       console.log(`❌ User disconnected: ${socket.id}`);
 
-      // Remove from all rooms
+      // Remove from Meeting model if this was a meeting participant
+      if (socket.meetingId) {
+        try {
+          const meeting = await Meeting.findOne({ meetingId: socket.meetingId });
+          if (meeting) {
+            await meeting.removeParticipant(socket.id);
+            console.log(`🗑️  Removed ${socket.participantType || 'participant'} from meeting ${socket.meetingId}`);
+          }
+        } catch (error) {
+          console.error('Error removing participant from meeting:', error);
+        }
+      }
+
+      // Remove from all rooms (in-memory tracking)
       rooms.forEach((participants, roomId) => {
         if (participants.has(socket.id)) {
           participants.delete(socket.id);
@@ -320,9 +479,22 @@ export function setupSocket(io) {
       });
 
         // Leave room explicitly
-        socket.on('leave-room', ({ roomId }) => {
+        socket.on('leave-room', async ({ roomId }) => {
           const normalizedRoomId = normalizeRoomId(roomId);
           console.log(`👋 User ${socket.id} leaving room ${normalizedRoomId}`);
+          
+          // Remove from Meeting model if this was a meeting participant
+          if (socket.meetingId) {
+            try {
+              const meeting = await Meeting.findOne({ meetingId: socket.meetingId });
+              if (meeting) {
+                await meeting.removeParticipant(socket.id);
+                console.log(`🗑️  Removed ${socket.participantType || 'participant'} from meeting ${socket.meetingId}`);
+              }
+            } catch (error) {
+              console.error('Error removing participant from meeting:', error);
+            }
+          }
           
           socket.leave(normalizedRoomId);
           

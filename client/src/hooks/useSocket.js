@@ -35,7 +35,7 @@ const getSocketUrl = () => {
 
 const SOCKET_URL = getSocketUrl();
 
-export function useSocket() {
+export function useSocket(guestToken = null, meetingId = null, userId = null) {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState(null);
@@ -55,6 +55,17 @@ export function useSocket() {
     const transports = isVercel ? ['polling'] : ['polling', 'websocket'];
     const upgrade = !isVercel; // Disable upgrade on Vercel
     
+    // Prepare auth data for handshake
+    const auth = {};
+    if (guestToken) {
+      auth.guestToken = guestToken;
+      auth.meetingId = meetingId;
+      console.log('🔐 Connecting as guest with meeting:', meetingId);
+    } else if (userId) {
+      auth.userId = userId;
+      console.log('🔐 Connecting as registered user:', userId);
+    }
+    
     console.log('🔌 Socket configuration:', {
       url: SOCKET_URL,
       transports,
@@ -62,6 +73,7 @@ export function useSocket() {
       isVercel,
       isRailway,
       isRender,
+      auth: guestToken ? 'guest' : userId ? 'user' : 'none',
     });
     
     const newSocket = io(SOCKET_URL, {
@@ -75,6 +87,7 @@ export function useSocket() {
       forceNew: false,
       autoConnect: true,
       withCredentials: true,
+      auth, // Pass auth data in handshake
     });
 
     // Connection event handlers

@@ -1,19 +1,25 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useAuth } from '@/context/AuthContext';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { toast } from 'sonner';
-import { LuEye, LuEyeOff } from 'react-icons/lu';
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation, Navigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { toast } from "sonner";
+import { LuEye, LuEyeOff } from "react-icons/lu";
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(1, 'Password is required'),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
 });
 
 export function Login() {
@@ -26,19 +32,19 @@ export function Login() {
   // Redirect if already logged in
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      if (user?.status === 'pending') {
-        navigate('/pending-approval', { replace: true });
-      } else if (user?.status === 'rejected') {
-        navigate('/rejected', { replace: true });
-      } else if (user?.status === 'suspended') {
-        navigate('/suspended', { replace: true });
+      if (user?.status === "pending") {
+        navigate("/pending-approval", { replace: true });
+      } else if (user?.status === "rejected") {
+        navigate("/rejected", { replace: true });
+      } else if (user?.status === "suspended") {
+        navigate("/suspended", { replace: true });
       } else {
         // Preserve any query params from location state
         const from = location.state?.from;
         if (from) {
-          navigate(`${from.pathname}${from.search || ''}`, { replace: true });
+          navigate(`${from.pathname}${from.search || ""}`, { replace: true });
         } else {
-          navigate('/call', { replace: true });
+          navigate("/call", { replace: true });
         }
       }
     }
@@ -58,28 +64,28 @@ export function Login() {
       const result = await login(data.email, data.password);
 
       if (result.success) {
-        toast.success('Login successful!');
+        toast.success("Login successful!");
         // Redirect to intended page with preserved search params (e.g., ?roomid=xxx)
         const from = location.state?.from;
         if (from) {
           // Preserve both pathname and search params
-          navigate(`${from.pathname}${from.search || ''}`, { replace: true });
+          navigate(`${from.pathname}${from.search || ""}`, { replace: true });
         } else {
-          navigate('/call', { replace: true });
+          navigate("/call", { replace: true });
         }
       } else {
-        if (result.status === 'pending') {
-          navigate('/pending-approval');
-        } else if (result.status === 'rejected') {
-          navigate('/rejected');
-        } else if (result.status === 'suspended') {
-          navigate('/suspended');
+        if (result.status === "pending") {
+          navigate("/pending-approval");
+        } else if (result.status === "rejected") {
+          navigate("/rejected");
+        } else if (result.status === "suspended") {
+          navigate("/suspended");
         } else {
-          toast.error(result.error || 'Login failed');
+          toast.error(result.error || "Login failed");
         }
       }
     } catch (error) {
-      toast.error('An unexpected error occurred');
+      toast.error("An unexpected error occurred");
     } finally {
       setLoading(false);
     }
@@ -90,20 +96,30 @@ export function Login() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4 pb-4 border-b">
-            <img src="/logo.png" alt="Synchro Logo" className="w-auto h-16 object-contain" />
+            <img
+              src="/logo.png"
+              alt="Synchro Logo"
+              className="w-auto h-16 object-contain"
+            />
           </div>
           <CardTitle className="text-3xl">Welcome to Synchro</CardTitle>
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={(e) => { e.preventDefault(); handleSubmit(onSubmit)(e); }} className="space-y-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSubmit(onSubmit)(e);
+            }}
+            className="space-y-4"
+          >
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
                 placeholder="you@example.com"
-                {...register('email')}
+                {...register("email")}
                 disabled={loading}
               />
               {errors.email && (
@@ -116,9 +132,9 @@ export function Login() {
               <div className="relative">
                 <Input
                   id="password"
-                  type={showPassword ? 'text' : 'password'}
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  {...register('password')}
+                  {...register("password")}
                   disabled={loading}
                   className="pr-10"
                 />
@@ -136,22 +152,36 @@ export function Login() {
                 </button>
               </div>
               {errors.password && (
-                <p className="text-sm text-red-500">{errors.password.message}</p>
+                <p className="text-sm text-red-500">
+                  {errors.password.message}
+                </p>
               )}
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm">
-            <span className="text-muted-foreground">Don't have an account? </span>
+            <span className="text-muted-foreground">
+              Don't have an account?{" "}
+            </span>
             <Link to="/register" className="text-primary hover:underline">
               Register
             </Link>
           </div>
-
+          <div className="text-center mt-10 text-sm border-t border-gray-200 py-4 relative">
+            <div className="text-muted-foreground absolute top-[-36%] bg-background px-2 uppercase font-medium left-1/2 -translate-x-1/2">
+              or
+            </div>
+          </div>
+          <div className="mt-6 text-center text-sm">
+            <span className="text-muted-foreground">Join as a guest? </span>
+            <Link to="/call" className="text-primary hover:underline">
+              Join as a guest
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>

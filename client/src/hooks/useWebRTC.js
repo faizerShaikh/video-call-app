@@ -542,6 +542,14 @@ export function useWebRTC(socket, roomId, localUserId) {
       // Create and send offer
       console.log(`📤 Creating and sending offer to ${participantId}...`);
       console.log('📤 Room ID:', roomId);
+      console.log('📤 Socket ID:', socket?.id);
+      
+      // Ensure socket is still available before sending
+      if (!socket) {
+        console.error(`❌ Socket not available, cannot send offer to ${participantId}`);
+        throw new Error('Socket not available');
+      }
+      
       const offer = await createOffer(pc);
       console.log('📤 Offer created, type:', offer.type);
       socket.emit('offer', {
@@ -678,6 +686,14 @@ export function useWebRTC(socket, roomId, localUserId) {
       
       console.log(`📤 Sending answer to: ${from}`);
       console.log('📤 Room ID:', roomId);
+      console.log('📤 Socket ID:', socket?.id);
+      
+      // Ensure socket is still connected before sending
+      if (!socket) {
+        console.error(`❌ Socket not available, cannot send answer to ${from}`);
+        throw new Error('Socket not available');
+      }
+      
       socket.emit('answer', {
         answer,
         roomId,
