@@ -86,6 +86,11 @@ webrtc/
    
    # For production (use your hosted server)
    # VITE_SOCKET_URL=https://video-call-app-server-faizer.vercel.app
+   
+   # Optional: TURN server for international/cross-network calls (see README section below)
+   # VITE_TURN_URL=turn:your-turn.example.com:443
+   # VITE_TURN_USERNAME=your-username
+   # VITE_TURN_CREDENTIAL=your-credential
    ```
    
    **Note:** To use the hosted Vercel server, uncomment and use the production URL above.
@@ -214,6 +219,29 @@ npx shadcn@latest add input
 - [ ] Connection quality indicators
 - [ ] User authentication
 - [ ] Room password protection
+
+## 🌍 International / cross-network calls (TURN)
+
+Calls on the **same network** (e.g. same office Wi‑Fi) usually work with STUN only. When participants are in **different countries or networks** (different NATs/firewalls), peer-to-peer often fails and you see a black video box and "Connection failed… Retrying".
+
+**Fix:** Use a **TURN server** to relay media when a direct path cannot be found.
+
+1. **Get TURN credentials** (pick one):
+   - **Metered.ca** – [Free tier](https://www.metered.ca/stun-turn) (sign up, then use their TURN URLs and credentials).
+   - **Twilio** – [TURN (paid)](https://www.twilio.com/docs/stun-turn) – very reliable.
+   - **Self-hosted** – Run [coturn](https://github.com/coturn/coturn) on your server.
+
+2. **Configure the client** – In `client/.env` (or your build env), set:
+   ```env
+   VITE_TURN_URL=turn:your-turn-host:443,turn:your-turn-host:443?transport=tcp
+   VITE_TURN_USERNAME=your-username
+   VITE_TURN_CREDENTIAL=your-credential
+   ```
+   Then **rebuild** the client (`npm run build`). The app will use this TURN server first for ICE, so international/cross-network calls can connect via relay.
+
+3. **Multiple URLs** – You can pass several TURN URLs in `VITE_TURN_URL` separated by commas (same username/credential used for all).
+
+Without these env vars, the app falls back to free public TURN servers, which may be rate-limited or unreliable for cross-country use.
 
 ## 🔒 Security Notes
 

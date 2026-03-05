@@ -456,7 +456,9 @@ export function useWebRTC(socket, roomId, localUserId) {
     // Handle ICE candidate
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
-        console.log(`🧊 Sending ICE candidate to ${participantId}`);
+        const c = event.candidate;
+        const type = c.type || (c.candidate && c.candidate.split(' ')[7]) || 'unknown';
+        console.log(`🧊 Sending ICE candidate to ${participantId} (${type})`);
         socket.emit('ice-candidate', {
           candidate: event.candidate,
           roomId,

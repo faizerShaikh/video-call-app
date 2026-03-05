@@ -1,58 +1,42 @@
-// WebRTC configuration with multiple STUN servers and free TURN servers
-export const RTC_CONFIG = {
-  iceServers: [
-    // Google STUN servers
+// Build ICE servers: env TURN first (reliable for international calls), then STUN + free TURN fallback
+function getIceServers() {
+  const servers = [];
+
+  // 1. Custom TURN from env (recommended for cross-country calls – Metered.ca, Twilio, or self-hosted coturn)
+  const turnUrl = import.meta.env.VITE_TURN_URL;
+  const turnUser = import.meta.env.VITE_TURN_USERNAME;
+  const turnCred = import.meta.env.VITE_TURN_CREDENTIAL;
+  if (turnUrl && turnUser != null && turnCred != null) {
+    const urls = turnUrl.split(',').map((u) => u.trim()).filter(Boolean);
+    urls.forEach((url) => {
+      servers.push({ urls: url, username: turnUser, credential: turnCred });
+    });
+  }
+
+  // 2. STUN (required for discovery)
+  servers.push(
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    // Additional STUN servers
-    { urls: 'stun:stun.stunprotocol.org:3478' },
-    { urls: 'stun:stun.voiparound.com' },
-    { urls: 'stun:stun.voipbuster.com' },
-    { urls: 'stun:stun.voipstunt.com' },
-    // Free TURN servers (for NAT traversal when STUN fails)
-    // Note: Free TURN servers may have rate limits. For production, consider:
-    // 1. Metered.ca free tier (sign up at https://www.metered.ca/stun-turn)
-    // 2. Twilio TURN (paid, very reliable)
-    // 3. Self-hosted coturn server
-    
-    // OpenRelay (free, but may have rate limits)
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    
-    // Additional free TURN servers (backup)
-    {
-      urls: 'turn:relay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:relay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:relay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-  iceCandidatePoolSize: 10, // Pre-gather more candidates
+    { urls: 'stun:stun.stunprotocol.org:3478' }
+  );
+
+  // 3. Free TURN fallback (rate-limited; use VITE_TURN_* for reliable international calls)
+  servers.push(
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  );
+
+  return servers;
+}
+
+export const RTC_CONFIG = {
+  iceServers: getIceServers(),
+  iceCandidatePoolSize: 16,
+  bundlePolicy: 'max-bundle',
 };
 
 /**

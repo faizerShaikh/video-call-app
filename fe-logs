@@ -1,0 +1,391 @@
+🌐 Using configured socket URL from VITE_SOCKET_URL: https://synchro.ai21.ca
+index-B8LhI2JU.js:14 🔌 Attempting to connect to: https://synchro.ai21.ca
+index-B8LhI2JU.js:14 🌐 Current origin: https://synchro.ai21.ca
+index-B8LhI2JU.js:14 🔌 Socket configuration: {url: 'https://synchro.ai21.ca', transports: Array(2), upgrade: true, isVercel: false, isRailway: false, …}
+2index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 ✅ Socket connected: Bv_OaTegHzXM6wsKAAAR
+index-B8LhI2JU.js:14 📡 Transport: polling
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Room update: {participantCount: 1, roomId: 'nacj7v0r6', otherParticipants: Array(0)}
+index-B8LhI2JU.js:14 ✅ Room joined successfully: {roomId: 'nacj7v0r6', participantCount: 1, otherParticipants: Array(0)}
+index-B8LhI2JU.js:14 👤 First participant, waiting for another participant to join...
+index-B8LhI2JU.js:14 💡 Will create peer connections when other users join the room
+index-B8LhI2JU.js:14 🎥 Video tracks changed: {streamId: 'ce9a0483-686c-4644-9446-72b3c6392b0a', hasTracks: true, videoTracks: 1, totalTracks: 2, trackIds: Array(1)}
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: 'ce9a0483-686c-4644-9446-72b3c6392b0a', previousStreamId: 'none', tracks: 'audio(083d1b82), video(76d6a808)'}
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 📹 Video metadata loaded
+index-B8LhI2JU.js:14 📹 Video data loaded
+index-B8LhI2JU.js:14 📹 Video can play
+index-B8LhI2JU.js:14 ✅ Video playing successfully
+30index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 👤 User joined: user-v4yxet1bu dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🔄 Another user joined (dON82P_kkr8KfrGQAAAT), creating peer connection...
+index-B8LhI2JU.js:14 📊 Room update: {participantCount: 2, roomId: 'nacj7v0r6', otherParticipants: Array(1)}
+index-B8LhI2JU.js:14 🔍 Verifying peer connections with all participants...
+index-B8LhI2JU.js:14 📋 Other participants: ['Bv_OaTegHzXM6wsKAAAR']
+index-B8LhI2JU.js:14 📋 Current peer connections: []
+index-B8LhI2JU.js:14 📞 Creating peer connection with new participant dON82P_kkr8KfrGQAAAT...
+index-B8LhI2JU.js:14 ✅ Added local stream to peer connection for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📤 Creating and sending offer to dON82P_kkr8KfrGQAAAT...
+index-B8LhI2JU.js:14 📤 Room ID: nacj7v0r6
+index-B8LhI2JU.js:14 📤 Offer created, type: offer
+index-B8LhI2JU.js:14 ✅ Offer sent to dON82P_kkr8KfrGQAAAT in room: nacj7v0r6
+2index-B8LhI2JU.js:14 🧊 Sending ICE candidate to dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🧊 ICE gathering state for dON82P_kkr8KfrGQAAAT: gathering
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+2index-B8LhI2JU.js:14 🧊 Sending ICE candidate to dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+6index-B8LhI2JU.js:14 🧊 Sending ICE candidate to dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🧊 ICE connection state for dON82P_kkr8KfrGQAAAT: checking
+index-B8LhI2JU.js:14 🔗 Connection state changed for dON82P_kkr8KfrGQAAAT: connecting
+index-B8LhI2JU.js:14 🔄 Connecting to dON82P_kkr8KfrGQAAAT...
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received answer from: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📥 Answer details: {type: 'answer', sdp: 'v=0\r\no=- 3125086939959120430 2 IN IP4 127.0.0.1\r\ns…t=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixe...'}
+index-B8LhI2JU.js:14 📥 Received answer from dON82P_kkr8KfrGQAAAT, current signaling state: have-local-offer
+index-B8LhI2JU.js:14 📥 Setting remote description from answer from dON82P_kkr8KfrGQAAAT...
+index-B8LhI2JU.js:14 📥 Answer SDP (first 200 chars): v=0
+o=- 3125086939959120430 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=extmap-allow-mixed
+a=msid-semantic: WMS d65e2d8d-ad44-4fd7-838c-d44f1176f64f
+m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0
+index-B8LhI2JU.js:14 📹 Media state update received from: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📹 Video enabled: true Audio enabled: true
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 ⏳ Remote description not set yet for dON82P_kkr8KfrGQAAAT, queueing ICE candidate
+index-B8LhI2JU.js:14 📹 Received remote track from dON82P_kkr8KfrGQAAAT {trackId: '68eb1b90', trackKind: 'audio', trackEnabled: true, trackReadyState: 'live', streams: 1}
+index-B8LhI2JU.js:14 📹 Received remote track from dON82P_kkr8KfrGQAAAT {trackId: 'b4570452', trackKind: 'video', trackEnabled: true, trackReadyState: 'live', streams: 1}
+index-B8LhI2JU.js:14 🔊 Track 68eb1b90 unmuted for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🔊 Track b4570452 unmuted for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 ✅ Remote description set for dON82P_kkr8KfrGQAAAT, processing queued ICE candidates
+index-B8LhI2JU.js:14 📦 Processing 1 queued ICE candidates for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🆕 Created new stream for dON82P_kkr8KfrGQAAAT with audio track
+index-B8LhI2JU.js:14 ➕ Adding video track to remote stream for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🔄 Updated stream for dON82P_kkr8KfrGQAAAT with 2 track(s): audio(68eb1b90), video(b4570452)
+index-B8LhI2JU.js:14 ✅ Added queued ICE candidate for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🧊 ICE connection state for dON82P_kkr8KfrGQAAAT: connected
+index-B8LhI2JU.js:14 ✅ ICE connection established with dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🎥 Video tracks changed: {streamId: '25e01f1f-c36f-4692-ba5f-b0dfc8bd141c', hasTracks: true, videoTracks: 1, totalTracks: 2, trackIds: Array(1)}
+index-B8LhI2JU.js:14 🧊 ICE gathering state for dON82P_kkr8KfrGQAAAT: complete
+index-B8LhI2JU.js:14 ✅ ICE gathering complete for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 ✅ All ICE candidates gathered for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14    Candidate: host - 192.168.1.33:9 - tcp
+index-B8LhI2JU.js:14    Candidate: host - 192.168.1.33:53847 - udp
+index-B8LhI2JU.js:14    Candidate: host - 192.168.1.66:62528 - udp
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: '25e01f1f-c36f-4692-ba5f-b0dfc8bd141c', previousStreamId: 'none', tracks: 'audio(68eb1b90), video(b4570452)'}
+index-B8LhI2JU.js:14 🔗 Connection state changed for dON82P_kkr8KfrGQAAAT: connected
+index-B8LhI2JU.js:14 ✅ WebRTC connection established with dON82P_kkr8KfrGQAAAT!
+index-B8LhI2JU.js:14 📊 Receivers for dON82P_kkr8KfrGQAAAT: 2
+index-B8LhI2JU.js:14   Receiver 0: audio - 68eb1b90 - enabled: true - readyState: live
+index-B8LhI2JU.js:14   Receiver 1: video - b4570452 - enabled: true - readyState: live
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 🔄 Updated stream for dON82P_kkr8KfrGQAAAT with 2 track(s): audio(68eb1b90), video(b4570452)
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: '436b5eab-0e51-42c2-a8ff-aa6ecdf7ccfd', previousStreamId: '25e01f1f-c36f-4692-ba5f-b0dfc8bd141c', tracks: 'audio(68eb1b90), video(b4570452)'}
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 📹 Video metadata loaded
+index-B8LhI2JU.js:14 📹 Video data loaded
+index-B8LhI2JU.js:14 📹 Video can play
+index-B8LhI2JU.js:14 ✅ Video playing successfully
+index-B8LhI2JU.js:14 ✅ All peer connections exist
+index-B8LhI2JU.js:14 📹 ICE connected for dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video)
+index-B8LhI2JU.js:14 🔄 ICE: Updated stream for dON82P_kkr8KfrGQAAAT with 2 live track(s)
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: 'd095f30d-a55e-493a-b866-2b957967f197', previousStreamId: '436b5eab-0e51-42c2-a8ff-aa6ecdf7ccfd', tracks: 'audio(68eb1b90), video(b4570452)'}
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 📹 Video metadata loaded
+index-B8LhI2JU.js:14 📹 Video data loaded
+index-B8LhI2JU.js:14 📹 Video can play
+index-B8LhI2JU.js:14 ✅ Video playing successfully
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 📹 Media state update received from: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📹 Video enabled: true Audio enabled: false
+index-B8LhI2JU.js:14 📹 Media state update received from: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📹 Video enabled: false Audio enabled: false
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 📹 Media state update received from: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📹 Video enabled: true Audio enabled: false
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 👋 User left: dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 📊 Room update: {participantCount: 1, roomId: 'nacj7v0r6', otherParticipants: Array(1)}
+index-B8LhI2JU.js:14 🔍 Verifying peer connections with all participants...
+index-B8LhI2JU.js:14 📋 Other participants: ['Bv_OaTegHzXM6wsKAAAR']
+index-B8LhI2JU.js:14 📋 Current peer connections: ['dON82P_kkr8KfrGQAAAT']
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 ✅ All peer connections exist
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Checking dON82P_kkr8KfrGQAAAT: 2 live tracks (1 video, 1 audio)
+index-B8LhI2JU.js:14 ✅ Closed peer connection for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 ⚠️ Track 68eb1b90 ended for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 ⚠️ Track b4570452 ended for dON82P_kkr8KfrGQAAAT
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📊 Room update: {participantCount: 1, roomId: 'sc8pkdldo', otherParticipants: Array(0)}
+index-B8LhI2JU.js:14 ✅ Room joined successfully: {roomId: 'sc8pkdldo', participantCount: 1, otherParticipants: Array(0)}
+index-B8LhI2JU.js:14 👤 First participant, waiting for another participant to join...
+index-B8LhI2JU.js:14 💡 Will create peer connections when other users join the room
+index-B8LhI2JU.js:14 🎥 Video tracks changed: {streamId: '57be42be-8163-443f-b52f-611e1a2140b1', hasTracks: true, videoTracks: 1, totalTracks: 2, trackIds: Array(1)}
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: '57be42be-8163-443f-b52f-611e1a2140b1', previousStreamId: 'none', tracks: 'audio(b32a2a25), video(4a0fc715)'}
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 📹 Video metadata loaded
+index-B8LhI2JU.js:14 📹 Video data loaded
+index-B8LhI2JU.js:14 📹 Video can play
+index-B8LhI2JU.js:14 ✅ Video playing successfully
+64index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 👤 User joined: user-1mqbsb9yj 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔄 Another user joined (2NsJVsqC2Spuq6izAAAj), creating peer connection...
+index-B8LhI2JU.js:14 📊 Room update: {participantCount: 2, roomId: 'sc8pkdldo', otherParticipants: Array(1)}
+index-B8LhI2JU.js:14 🔍 Verifying peer connections with all participants...
+index-B8LhI2JU.js:14 📋 Other participants: ['Bv_OaTegHzXM6wsKAAAR']
+index-B8LhI2JU.js:14 📋 Current peer connections: []
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📞 Creating peer connection with new participant 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 ✅ Added local stream to peer connection for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📤 Creating and sending offer to 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 📤 Room ID: sc8pkdldo
+index-B8LhI2JU.js:14 📤 Offer created, type: offer
+index-B8LhI2JU.js:14 ✅ Offer sent to 2NsJVsqC2Spuq6izAAAj in room: sc8pkdldo
+2index-B8LhI2JU.js:14 🧊 Sending ICE candidate to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🧊 ICE gathering state for 2NsJVsqC2Spuq6izAAAj: gathering
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+8index-B8LhI2JU.js:14 🧊 Sending ICE candidate to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Received answer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Answer details: {type: 'answer', sdp: 'v=0\r\no=- 1310674421123287611 2 IN IP4 127.0.0.1\r\ns…t=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixe...'}
+index-B8LhI2JU.js:14 📥 Received answer from 2NsJVsqC2Spuq6izAAAj, current signaling state: have-local-offer
+index-B8LhI2JU.js:14 📥 Setting remote description from answer from 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 📥 Answer SDP (first 200 chars): v=0
+o=- 1310674421123287611 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=extmap-allow-mixed
+a=msid-semantic: WMS 4b26d283-8304-4471-806d-b2a8b8cf3ac4
+m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0
+index-B8LhI2JU.js:14 📹 Media state update received from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📹 Video enabled: true Audio enabled: true
+index-B8LhI2JU.js:14 ✅ All peer connections exist
+index-B8LhI2JU.js:14 📹 Received remote track from 2NsJVsqC2Spuq6izAAAj {trackId: '211d8f97', trackKind: 'audio', trackEnabled: true, trackReadyState: 'live', streams: 1}
+index-B8LhI2JU.js:14 📹 Received remote track from 2NsJVsqC2Spuq6izAAAj {trackId: 'cc1460bc', trackKind: 'video', trackEnabled: true, trackReadyState: 'live', streams: 1}
+index-B8LhI2JU.js:14 🔊 Track 211d8f97 unmuted for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔊 Track cc1460bc unmuted for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Remote description set for 2NsJVsqC2Spuq6izAAAj, processing queued ICE candidates
+index-B8LhI2JU.js:14 🆕 Created new stream for 2NsJVsqC2Spuq6izAAAj with audio track
+index-B8LhI2JU.js:14 ➕ Adding video track to remote stream for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔄 Updated stream for 2NsJVsqC2Spuq6izAAAj with 2 track(s): audio(211d8f97), video(cc1460bc)
+index-B8LhI2JU.js:14 🎥 Video tracks changed: {streamId: 'e717923d-51e6-410d-b204-3b2334a935c6', hasTracks: true, videoTracks: 1, totalTracks: 2, trackIds: Array(1)}
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: 'e717923d-51e6-410d-b204-3b2334a935c6', previousStreamId: 'none', tracks: 'audio(211d8f97), video(cc1460bc)'}
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 ICE connection state for 2NsJVsqC2Spuq6izAAAj: checking
+index-B8LhI2JU.js:14 🔗 Connection state changed for 2NsJVsqC2Spuq6izAAAj: connecting
+index-B8LhI2JU.js:14 🔄 Connecting to 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 📹 Media state update received from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📹 Video enabled: true Audio enabled: false
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📹 Media state update received from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📹 Video enabled: false Audio enabled: false
+4index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Handling incoming offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔄 Simultaneous offer detected with 2NsJVsqC2Spuq6izAAAj. Setting remote description and creating answer...
+index-B8LhI2JU.js:14 ✅ Set remote description from 2NsJVsqC2Spuq6izAAAj's offer
+index-B8LhI2JU.js:14 ✅ Created answer to 2NsJVsqC2Spuq6izAAAj's offer
+index-B8LhI2JU.js:14 ✅ Answer sent to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⚠️ Connection to 2NsJVsqC2Spuq6izAAAj stuck in 'connecting' state, attempting renegotiation...
+index-B8LhI2JU.js:14 📤 Renegotiation offer sent to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received answer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Answer details: {type: 'answer', sdp: 'v=0\r\no=- 1310674421123287611 4 IN IP4 127.0.0.1\r\ns…t=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixe...'}
+index-B8LhI2JU.js:14 📥 Received answer from 2NsJVsqC2Spuq6izAAAj, current signaling state: have-local-offer
+index-B8LhI2JU.js:14 ⚠️ Already have remote description, but different SDP. This shouldn't happen in have-local-offer state.
+2index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Handling incoming offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔄 Simultaneous offer detected with 2NsJVsqC2Spuq6izAAAj. Setting remote description and creating answer...
+index-B8LhI2JU.js:14 ✅ Set remote description from 2NsJVsqC2Spuq6izAAAj's offer
+index-B8LhI2JU.js:14 ✅ Created answer to 2NsJVsqC2Spuq6izAAAj's offer
+index-B8LhI2JU.js:14 ✅ Answer sent to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🧊 ICE connection state for 2NsJVsqC2Spuq6izAAAj: disconnected
+index-B8LhI2JU.js:14 🔗 Connection state changed for 2NsJVsqC2Spuq6izAAAj: failed
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Handling incoming offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⚠️ Already have remote description from 2NsJVsqC2Spuq6izAAAj, ignoring duplicate offer
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 ICE connection state for 2NsJVsqC2Spuq6izAAAj: checking
+index-B8LhI2JU.js:14 🔗 Connection state changed for 2NsJVsqC2Spuq6izAAAj: connecting
+index-B8LhI2JU.js:14 🔄 Connecting to 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🔄 Attempting to reconnect with 2NsJVsqC2Spuq6izAAAj (attempt 1)...
+index-B8LhI2JU.js:14 ✅ Added local stream to peer connection for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📤 Creating and sending offer to 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 📤 Room ID: sc8pkdldo
+index-B8LhI2JU.js:14 ⚠️ Track 211d8f97 ended for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⚠️ Track cc1460bc ended for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🧹 Clearing video srcObject
+index-B8LhI2JU.js:14 ✅ Video playing successfully
+index-B8LhI2JU.js:14 📤 Offer created, type: offer
+index-B8LhI2JU.js:14 ✅ Offer sent to 2NsJVsqC2Spuq6izAAAj in room: sc8pkdldo
+index-B8LhI2JU.js:14 🧊 ICE gathering state for 2NsJVsqC2Spuq6izAAAj: gathering
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+4index-B8LhI2JU.js:14 🧊 Sending ICE candidate to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⏳ Remote description not set yet for 2NsJVsqC2Spuq6izAAAj, queueing ICE candidate
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⏳ Remote description not set yet for 2NsJVsqC2Spuq6izAAAj, queueing ICE candidate
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⏳ Remote description not set yet for 2NsJVsqC2Spuq6izAAAj, queueing ICE candidate
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⏳ Remote description not set yet for 2NsJVsqC2Spuq6izAAAj, queueing ICE candidate
+6index-B8LhI2JU.js:14 🧊 Sending ICE candidate to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Received answer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Answer details: {type: 'answer', sdp: 'v=0\r\no=- 999378414545134044 3 IN IP4 127.0.0.1\r\ns=…=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixed...'}
+index-B8LhI2JU.js:14 📥 Received answer from 2NsJVsqC2Spuq6izAAAj, current signaling state: have-local-offer
+index-B8LhI2JU.js:14 📥 Setting remote description from answer from 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 📥 Answer SDP (first 200 chars): v=0
+o=- 999378414545134044 3 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=extmap-allow-mixed
+a=msid-semantic: WMS 4b26d283-8304-4471-806d-b2a8b8cf3ac4
+m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 
+index-B8LhI2JU.js:14 📹 Received remote track from 2NsJVsqC2Spuq6izAAAj {trackId: 'dc6df53b', trackKind: 'audio', trackEnabled: true, trackReadyState: 'live', streams: 1}
+index-B8LhI2JU.js:14 🆕 Created new stream for 2NsJVsqC2Spuq6izAAAj with audio track
+index-B8LhI2JU.js:14 📹 Received remote track from 2NsJVsqC2Spuq6izAAAj {trackId: '9bf50c12', trackKind: 'video', trackEnabled: true, trackReadyState: 'live', streams: 1}
+index-B8LhI2JU.js:14 🔊 Track dc6df53b unmuted for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔊 Track 9bf50c12 unmuted for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Remote description set for 2NsJVsqC2Spuq6izAAAj, processing queued ICE candidates
+index-B8LhI2JU.js:14 📦 Processing 4 queued ICE candidates for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ➕ Adding video track to remote stream for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔄 Updated stream for 2NsJVsqC2Spuq6izAAAj with 2 track(s): audio(dc6df53b), video(9bf50c12)
+index-B8LhI2JU.js:14 ✅ Added queued ICE candidate for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🎥 Video tracks changed: {streamId: 'a0ab6e15-d9d1-43c5-a04e-bccc8af94b6b', hasTracks: true, videoTracks: 1, totalTracks: 2, trackIds: Array(1)}
+2index-B8LhI2JU.js:14 ✅ Added queued ICE candidate for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🧊 ICE connection state for 2NsJVsqC2Spuq6izAAAj: checking
+index-B8LhI2JU.js:14 🎥 Updating video srcObject: {streamId: 'a0ab6e15-d9d1-43c5-a04e-bccc8af94b6b', previousStreamId: 'none', tracks: 'audio(dc6df53b), video(9bf50c12)'}
+index-B8LhI2JU.js:14 ✅ Added queued ICE candidate for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔗 Connection state changed for 2NsJVsqC2Spuq6izAAAj: connecting
+index-B8LhI2JU.js:14 🔄 Connecting to 2NsJVsqC2Spuq6izAAAj...
+index-B8LhI2JU.js:14 ▶️ Video started playing
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+5index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 ⚠️ Connection to 2NsJVsqC2Spuq6izAAAj stuck in 'connecting' state, attempting renegotiation...
+index-B8LhI2JU.js:14 📤 Renegotiation offer sent to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Handling incoming offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🔄 Simultaneous offer detected with 2NsJVsqC2Spuq6izAAAj. Setting remote description and creating answer...
+index-B8LhI2JU.js:14 ✅ Set remote description from 2NsJVsqC2Spuq6izAAAj's offer
+index-B8LhI2JU.js:14 ✅ Created answer to 2NsJVsqC2Spuq6izAAAj's offer
+index-B8LhI2JU.js:14 ✅ Answer sent to 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Received answer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Answer details: {type: 'answer', sdp: 'v=0\r\no=- 999378414545134044 5 IN IP4 127.0.0.1\r\ns=…=0 0\r\na=group:BUNDLE 0 1\r\na=extmap-allow-mixed...'}
+index-B8LhI2JU.js:14 📥 Received answer from 2NsJVsqC2Spuq6izAAAj, current signaling state: stable
+index-B8LhI2JU.js:14 ⚠️ Answer received in wrong state (stable), already have remote description. Ignoring.
+3index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Handling incoming offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⚠️ Already have remote description from 2NsJVsqC2Spuq6izAAAj, ignoring duplicate offer
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 📥 Received offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 📥 Handling incoming offer from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⚠️ Already have remote description from 2NsJVsqC2Spuq6izAAAj, ignoring duplicate offer
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+index-B8LhI2JU.js:14 🧊 Received ICE candidate from: 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ✅ Adding ICE candidate for 2NsJVsqC2Spuq6izAAAj (remote description is set)
+4index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 ℹ️ Connection to 2NsJVsqC2Spuq6izAAAj closed due to timeout. User can retry manually.
+index-B8LhI2JU.js:14 ⚠️ Track dc6df53b ended for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 ⚠️ Track 9bf50c12 ended for 2NsJVsqC2Spuq6izAAAj
+index-B8LhI2JU.js:14 🧹 Clearing video srcObject
+index-B8LhI2JU.js:14 ✅ Video playing successfully
+54index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
+index-B8LhI2JU.js:14 🔍 Verifying all peer connections and streams...
