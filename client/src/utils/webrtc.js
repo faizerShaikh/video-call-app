@@ -1,43 +1,80 @@
-// Build ICE servers: env TURN first (reliable for international calls), then STUN + free TURN fallback
-function getIceServers() {
-  const servers = [];
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-  // 1. Custom TURN from env (recommended for cross-country calls – Metered.ca, Twilio, or self-hosted coturn)
-  const turnUrl = import.meta.env.VITE_TURN_URL;
-  const turnUser = import.meta.env.VITE_TURN_USERNAME;
-  const turnCred = import.meta.env.VITE_TURN_CREDENTIAL;
-  if (turnUrl && turnUser != null && turnCred != null) {
-    const urls = turnUrl.split(',').map((u) => u.trim()).filter(Boolean);
-    urls.forEach((url) => {
-      servers.push({ urls: url, username: turnUser, credential: turnCred });
-    });
+const STUN_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  { urls: 'stun:stun.stunprotocol.org:3478' },
+];
+
+let cachedIceServers = [...STUN_SERVERS];
+let iceServerPromise = null;
+
+async function fetchTurnCredentials() {
+  const response = await fetch(`${API_BASE_URL}/api/turn-credentials`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`TURN credential request failed with status ${response.status}`);
   }
 
-  // 2. STUN (required for discovery)
-  servers.push(
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.stunprotocol.org:3478' }
-  );
-
-  // 3. Free TURN fallback (rate-limited; use VITE_TURN_* for reliable international calls)
-  servers.push(
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-  );
-
-  return servers;
+  return response.json();
 }
 
-export const RTC_CONFIG = {
-  iceServers: getIceServers(),
-  iceCandidatePoolSize: 16,
-  bundlePolicy: 'max-bundle',
-};
+function buildTurnIceServer(credentials) {
+  const turnUrl = import.meta.env.VITE_TURN_URL;
+  const turnsUrl = import.meta.env.VITE_TURNS_URL;
+
+  const urls = [turnUrl, turnsUrl].filter(Boolean);
+  if (!urls.length) {
+    return null;
+  }
+
+  return {
+    urls,
+    username: credentials.username,
+    credential: credentials.password,
+  };
+}
+
+export async function getIceServers() {
+  if (iceServerPromise) {
+    return iceServerPromise;
+  }
+
+  iceServerPromise = (async () => {
+    try {
+      const credentials = await fetchTurnCredentials();
+      const turnServer = buildTurnIceServer(credentials);
+
+      if (turnServer) {
+        cachedIceServers = [STUN_SERVERS[0], turnServer];
+      } else {
+        cachedIceServers = [...STUN_SERVERS];
+      }
+    } catch (error) {
+      console.error('Failed to fetch TURN credentials, using STUN fallback:', error);
+      cachedIceServers = [...STUN_SERVERS];
+    }
+
+    return cachedIceServers;
+  })();
+
+  return iceServerPromise;
+}
+
+export async function getRTCConfig() {
+  const iceServers = await getIceServers();
+  return {
+    iceServers,
+    iceCandidatePoolSize: 16,
+    bundlePolicy: 'max-bundle',
+  };
+}
 
 /**
  * Check if getUserMedia is available
@@ -138,8 +175,9 @@ export function stopStream(stream) {
 /**
  * Create a new RTCPeerConnection
  */
-export function createPeerConnection() {
-  return new RTCPeerConnection(RTC_CONFIG);
+export async function createPeerConnection() {
+  const rtcConfig = await getRTCConfig();
+  return new RTCPeerConnection(rtcConfig);
 }
 
 /**

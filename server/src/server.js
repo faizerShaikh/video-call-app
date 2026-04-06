@@ -10,6 +10,7 @@ import { connectDatabase } from './config/database.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import adminRoutes from './routes/admin.js';
+import turnRoutes from './routes/turn.js';
 
 dotenv.config();
 
@@ -156,7 +157,8 @@ app.get("/", (req, res) => {
       health: "/health",
       auth: "/api/auth",
       users: "/api/users",
-      admin: "/api/admin"
+      admin: "/api/admin",
+      turnCredentials: "/api/turn-credentials"
     }
   });
 });
@@ -165,6 +167,7 @@ app.get("/", (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api', turnRoutes);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {

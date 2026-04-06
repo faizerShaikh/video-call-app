@@ -54,8 +54,8 @@ export function useWebRTC(socket, roomId, localUserId) {
   }, []);
 
   // Create peer connection for a specific participant
-  const createPeerConnectionInstance = useCallback((participantId) => {
-    const pc = createPeerConnection();
+  const createPeerConnectionInstance = useCallback(async (participantId) => {
+    const pc = await createPeerConnection();
 
     // Handle remote stream
     pc.ontrack = (event) => {
@@ -533,7 +533,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       }
 
       // Create peer connection for this participant
-      const pc = createPeerConnectionInstance(participantId);
+      const pc = await createPeerConnectionInstance(participantId);
 
       // Add local stream to peer connection
       if (localStreamRef.current) {
@@ -652,7 +652,7 @@ export function useWebRTC(socket, roomId, localUserId) {
         }
 
         // Create peer connection for this participant
-        pc = createPeerConnectionInstance(from);
+        pc = await createPeerConnectionInstance(from);
         console.log(`✅ Created new peer connection for offer from ${from}`);
 
         if (localStreamRef.current) {
