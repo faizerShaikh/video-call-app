@@ -140,7 +140,7 @@ export function Login() {
               )}
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button onClick={handleSubmit(onSubmit)} type="button" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>

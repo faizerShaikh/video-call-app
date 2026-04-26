@@ -31,6 +31,16 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      const requestUrl = error.config?.url || '';
+      const isAuthEndpoint =
+        requestUrl.includes('/api/auth/login') ||
+        requestUrl.includes('/api/auth/register');
+
+      // Don't hard-redirect for expected auth failures (e.g. wrong login credentials)
+      if (isAuthEndpoint) {
+        return Promise.reject(error);
+      }
+
       // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');

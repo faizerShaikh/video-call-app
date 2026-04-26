@@ -20,66 +20,11 @@ const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV;
 const app = express();
 const httpServer = createServer(app);
 
-// CORS configuration - allow localhost, local network IPs, and common hosting platforms
-const allowedOrigins = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
-  : [
-      'http://localhost:5173',
-      'https://localhost:5173',
-      /^http:\/\/192\.168\.\d+\.\d+:5173$/,  // 192.168.x.x
-      /^http:\/\/10\.\d+\.\d+\.\d+:5173$/,   // 10.x.x.x
-      /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:5173$/, // 172.16-31.x.x
-      /^https?:\/\/.*\.vercel\.app$/,        // Vercel deployments
-      /^https?:\/\/.*\.netlify\.app$/,       // Netlify deployments
-      /^https?:\/\/.*\.github\.io$/,         // GitHub Pages
-      /^https?:\/\/.*\.railway\.app$/,       // Railway deployments
-      /^https?:\/\/.*\.railway\.xyz$/,       // Railway deployments (alternative domain)
-      /^https?:\/\/.*\.render\.com$/,        // Render deployments
-      /^https?:\/\/.*\.onrender\.com$/,      // Render deployments (alternative domain)
-    ];
-
-console.log('🌐 CORS Configuration:', {
-  mode: process.env.NODE_ENV || 'development',
-  customOrigins: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) : 'none',
-  defaultPatterns: 'localhost, local IPs, vercel, netlify, github, railway, render',
-});
+console.log('🌐 CORS Configuration: allow all origins');
 
 const io = new Server(httpServer, {
   cors: {
-    origin: (origin, callback) => {
-      // In development, allow all origins
-      if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-        console.log('🌐 Development mode: allowing origin:', origin || 'no origin');
-        return callback(null, true);
-      }
-      
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) {
-        console.log('⚠️  Request with no origin, allowing');
-        return callback(null, true);
-      }
-      
-      console.log('🌐 Checking origin:', origin);
-      
-      // Check if origin matches allowed origins
-      const isAllowed = allowedOrigins.some(allowed => {
-        if (typeof allowed === 'string') {
-          return origin === allowed;
-        }
-        if (allowed instanceof RegExp) {
-          return allowed.test(origin);
-        }
-        return false;
-      });
-      
-      if (isAllowed) {
-        console.log('✅ Origin allowed:', origin);
-        callback(null, true);
-      } else {
-        console.log('❌ Origin not allowed:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
@@ -96,30 +41,7 @@ const io = new Server(httpServer, {
 
 // More permissive CORS for development
 app.use(cors({
-  origin: (origin, callback) => {
-    // In development, allow all origins for easier testing
-    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
-      return callback(null, true);
-    }
-    
-    if (!origin) return callback(null, true);
-    
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (typeof allowed === 'string') {
-        return origin === allowed;
-      }
-      if (allowed instanceof RegExp) {
-        return allowed.test(origin);
-      }
-      return false;
-    });
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

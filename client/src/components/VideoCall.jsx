@@ -21,6 +21,7 @@ export function VideoCall() {
   const [localUserId] = useState(() => `user-${Math.random().toString(36).substr(2, 9)}`);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
+  const [participantNames, setParticipantNames] = useState(new Map());
   const [error, setError] = useState(null);
   const currentRoomIdRef = useRef(null);
 
@@ -79,7 +80,11 @@ export function VideoCall() {
 
       // Join room via socket with normalized room ID
       currentRoomIdRef.current = normalizedRoomId;
-      socket.emit('join-room', { roomId: normalizedRoomId, userId: localUserId });
+      socket.emit('join-room', {
+        roomId: normalizedRoomId,
+        userId: user?._id || localUserId,
+        userName: user?.name || 'Guest',
+      });
       setHasJoinedRoom(true);
 
       // Don't start call here - wait for room-joined event which tells us
@@ -122,7 +127,11 @@ export function VideoCall() {
       endCall();
       setRoomId(roomToRejoin);
       setHasJoinedRoom(true);
-      socket.emit('join-room', { roomId: roomToRejoin, userId: localUserId });
+      socket.emit('join-room', {
+        roomId: roomToRejoin,
+        userId: user?._id || localUserId,
+        userName: user?.name || 'Guest',
+      });
       setError(null);
     };
     socket.on('connect', onConnect);
@@ -175,14 +184,20 @@ export function VideoCall() {
     });
 
     // Handle user joined
-    socket.on('user-joined', ({ userId, socketId }) => {
-      console.log('👤 User joined:', userId, socketId);
+    socket.on('user-joined', ({ userId, userName, socketId }) => {
+      console.log('👤 User joined:', userId, userName, socketId);
       
       // Skip if this is our own join event
       if (socketId === socket.id) {
         console.log(`ℹ️ Ignoring own user-joined event: ${socketId}`);
         return;
       }
+
+      setParticipantNames((prev) => {
+        const next = new Map(prev);
+        next.set(socketId, userName || userId || `User-${socketId.substring(0, 6)}`);
+        return next;
+      });
       
       // If we're already in a call and another user joins, create a peer connection with them
       if (hasJoinedRoom) {
@@ -212,12 +227,26 @@ export function VideoCall() {
     // Handle user left
     socket.on('user-left', ({ socketId }) => {
       console.log('👋 User left:', socketId);
+      setParticipantNames((prev) => {
+        const next = new Map(prev);
+        next.delete(socketId);
+        return next;
+      });
     });
 
     // Handle room update
-    socket.on('room-update', ({ participantCount, roomId, otherParticipants }) => {
-      console.log('📊 Room update:', { participantCount, roomId, otherParticipants });
+    socket.on('room-update', ({ participantCount, roomId, otherParticipants, participantDetails }) => {
+      console.log('📊 Room update:', { participantCount, roomId, otherParticipants, participantDetails });
       setParticipantCount(participantCount);
+      if (participantDetails && participantDetails.length) {
+        setParticipantNames((prev) => {
+          const next = new Map(prev);
+          participantDetails.forEach((p) => {
+            if (p?.socketId && p?.name) next.set(p.socketId, p.name);
+          });
+          return next;
+        });
+      }
       
       // Ensure we have peer connections with all participants (safety net)
       if (hasJoinedRoom && otherParticipants && otherParticipants.length > 0) {
@@ -281,9 +310,18 @@ export function VideoCall() {
     });
 
     // Handle room joined confirmation
-    socket.on('room-joined', ({ roomId, participantCount, otherParticipants }) => {
-      console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants });
+    socket.on('room-joined', ({ roomId, participantCount, otherParticipants, participantDetails }) => {
+      console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants, participantDetails });
       setParticipantCount(participantCount);
+      if (participantDetails && participantDetails.length) {
+        setParticipantNames((prev) => {
+          const next = new Map(prev);
+          participantDetails.forEach((p) => {
+            if (p?.socketId && p?.name) next.set(p.socketId, p.name);
+          });
+          return next;
+        });
+      }
       
       // Reset offer received flag
       offerReceivedRef.current = false;
@@ -741,7 +779,7 @@ export function VideoCall() {
                         )}
                         {!participant.isLocal && (
                           <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
-                            {connectionState === 'connected' ? '✓' : '⏳'} {participant.id.substring(0, 8)}
+                            {connectionState === 'connected' ? '✓' : '⏳'} {participantNames.get(participant.id) || `User-${participant.id.substring(0, 6)}`}
                           </div>
                         )}
                       </div>

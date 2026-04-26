@@ -1,5 +1,6 @@
 // Room management
 const rooms = new Map();
+const participantMeta = new Map(); // socketId -> { name }
 
 const isDev = process.env.NODE_ENV !== 'production';
 const log = (...args) => isDev && console.log(...args);
@@ -28,9 +29,20 @@ function pruneRoom(io, roomId) {
   });
   toRemove.forEach((socketId) => {
     participants.delete(socketId);
+    participantMeta.delete(socketId);
     log(`🧹 Pruned ghost participant ${socketId} from room ${roomId}`);
   });
   if (participants.size === 0) rooms.delete(roomId);
+}
+
+function buildParticipantDetails(roomId, excludeSocketId = null) {
+  if (!rooms.has(roomId)) return [];
+  return Array.from(rooms.get(roomId))
+    .filter((socketId) => socketId !== excludeSocketId)
+    .map((socketId) => ({
+      socketId,
+      name: participantMeta.get(socketId)?.name || `User-${socketId.substring(0, 6)}`,
+    }));
 }
 
 // Export function to get active rooms
@@ -70,7 +82,7 @@ export function setupSocket(io) {
     };
 
     // Join a room
-    socket.on('join-room', ({ roomId, userId }) => {
+    socket.on('join-room', ({ roomId, userId, userName }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
       if (!normalizedRoomId) {
         socket.emit('join-room-error', { message: 'Invalid room ID' });
@@ -78,6 +90,9 @@ export function setupSocket(io) {
       }
 
       log(`👤 User ${userId} (${socket.id}) joining room "${normalizedRoomId}"`);
+      participantMeta.set(socket.id, {
+        name: (userName && String(userName).trim()) || String(userId || '').trim() || `User-${socket.id.substring(0, 6)}`,
+      });
 
       // Prune ghost participants before we join (ensures room state is accurate)
       pruneRoom(io, normalizedRoomId);
@@ -99,20 +114,28 @@ export function setupSocket(io) {
 
       const otherParticipants = Array.from(rooms.get(normalizedRoomId))
         .filter(id => id !== socket.id && io.sockets.sockets.has(id));
+      const otherParticipantDetails = buildParticipantDetails(normalizedRoomId, socket.id)
+        .filter((p) => io.sockets.sockets.has(p.socketId));
 
-      socket.to(normalizedRoomId).emit('user-joined', { userId, socketId: socket.id });
+      socket.to(normalizedRoomId).emit('user-joined', {
+        userId,
+        userName: participantMeta.get(socket.id)?.name,
+        socketId: socket.id,
+      });
 
       const participantCount = rooms.get(normalizedRoomId).size;
       io.to(normalizedRoomId).emit('room-update', {
         participantCount,
         roomId: normalizedRoomId,
         otherParticipants,
+        participantDetails: buildParticipantDetails(normalizedRoomId),
       });
 
       socket.emit('room-joined', {
         roomId: normalizedRoomId,
         participantCount,
         otherParticipants,
+        participantDetails: otherParticipantDetails,
       });
 
       log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s)`);
@@ -207,8 +230,10 @@ export function setupSocket(io) {
           participantCount,
           roomId,
           otherParticipants: remainingParticipants,
+          participantDetails: buildParticipantDetails(roomId),
         });
       });
+      participantMeta.delete(socket.id);
     });
 
     socket.on('get-room-info', ({ roomId: requestedRoomId }) => {
@@ -223,6 +248,7 @@ export function setupSocket(io) {
           participantCount: participants.size,
           roomId: requestedNormalizedRoomId,
           otherParticipants,
+          participantDetails: buildParticipantDetails(requestedNormalizedRoomId),
         });
       }
     });
@@ -244,8 +270,10 @@ export function setupSocket(io) {
           participantCount,
           roomId: normalizedRoomId,
           otherParticipants: remainingParticipants,
+          participantDetails: buildParticipantDetails(normalizedRoomId),
         });
       }
+      participantMeta.delete(socket.id);
     });
   });
 }

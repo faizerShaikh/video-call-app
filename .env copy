@@ -1,0 +1,9 @@
+DATABASE_USER='postgres'
+DATABASE_PASS='Bismillah@123'
+DATABASE_PORT=5432
+
+# DATABASE_HOST="localhost"
+DATABASE_HOST='pgbouncer'
+DATABASE_MAIN_HOST='34.180.33.98'
+# DATABASE_NAME='findhumsafar'
+DATABASE_NAME='findhumsafar-db'
