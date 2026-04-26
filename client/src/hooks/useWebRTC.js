@@ -23,6 +23,7 @@ export function useWebRTC(socket, roomId, localUserId) {
   const [remoteStreams, setRemoteStreams] = useState(new Map());
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   // Multiple remote media states: Map<socketId, {videoEnabled, audioEnabled}>
   const [remoteMediaStates, setRemoteMediaStates] = useState(new Map());
   const [connectionStates, setConnectionStates] = useState(new Map()); // Map<socketId, connectionState>
@@ -37,6 +38,10 @@ export function useWebRTC(socket, roomId, localUserId) {
   const connectionAttemptsRef = useRef(new Map());
   // Connection timeouts: Map<socketId, timeoutId>
   const connectionTimeoutsRef = useRef(new Map());
+  const screenStreamRef = useRef(null);
+  const cameraTrackRef = useRef(null);
+  const microphoneTrackRef = useRef(null);
+  const screenAudioTrackRef = useRef(null);
 
   // Initialize local stream
   const initializeLocalStream = useCallback(async () => {
@@ -52,6 +57,125 @@ export function useWebRTC(socket, roomId, localUserId) {
       throw err;
     }
   }, []);
+
+  const replaceOutgoingTrack = useCallback((kind, nextTrack) => {
+    peerConnectionsRef.current.forEach((pc, participantId) => {
+      const sender = pc.getSenders().find((s) => s.track && s.track.kind === kind);
+      if (sender) {
+        sender.replaceTrack(nextTrack).catch((err) => {
+          console.error(`Failed to replace ${kind} track for ${participantId}:`, err);
+        });
+      }
+    });
+  }, []);
+
+  const refreshLocalPreviewStream = useCallback(() => {
+    if (!localStreamRef.current) return;
+    const videoTrack = localStreamRef.current.getVideoTracks()[0] || null;
+    const audioTrack = localStreamRef.current.getAudioTracks()[0] || null;
+    const tracks = [videoTrack, audioTrack].filter(Boolean);
+    const refreshed = new MediaStream(tracks);
+    localStreamRef.current = refreshed;
+    setLocalStream(refreshed);
+  }, []);
+
+  const stopScreenShare = useCallback((reason = 'manual') => {
+    if (!isScreenSharing) return;
+
+    const cameraTrack = cameraTrackRef.current;
+    const microphoneTrack = microphoneTrackRef.current;
+
+    if (cameraTrack) {
+      replaceOutgoingTrack('video', cameraTrack);
+    }
+    if (microphoneTrack) {
+      replaceOutgoingTrack('audio', microphoneTrack);
+    }
+
+    if (localStreamRef.current) {
+      const currentVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      const currentAudioTrack = localStreamRef.current.getAudioTracks()[0];
+
+      if (currentVideoTrack && cameraTrack && currentVideoTrack.id !== cameraTrack.id) {
+        localStreamRef.current.removeTrack(currentVideoTrack);
+        localStreamRef.current.addTrack(cameraTrack);
+      }
+
+      if (screenAudioTrackRef.current && currentAudioTrack && currentAudioTrack.id === screenAudioTrackRef.current.id) {
+        localStreamRef.current.removeTrack(currentAudioTrack);
+        if (microphoneTrack) {
+          localStreamRef.current.addTrack(microphoneTrack);
+        }
+      }
+      refreshLocalPreviewStream();
+    }
+
+    if (screenStreamRef.current) {
+      stopStream(screenStreamRef.current);
+      screenStreamRef.current = null;
+    }
+
+    screenAudioTrackRef.current = null;
+    setIsScreenSharing(false);
+    console.log(`🖥️ Screen sharing stopped (${reason})`);
+  }, [isScreenSharing, refreshLocalPreviewStream, replaceOutgoingTrack]);
+
+  const startScreenShare = useCallback(async () => {
+    try {
+      if (!localStreamRef.current) {
+        await initializeLocalStream();
+      }
+
+      if (isScreenSharing) return true;
+
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+
+      const screenVideoTrack = displayStream.getVideoTracks()[0];
+      const screenAudioTrack = displayStream.getAudioTracks()[0] || null;
+
+      if (!screenVideoTrack) {
+        throw new Error('No screen video track available');
+      }
+
+      const currentCameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+      const currentMicrophoneTrack = localStreamRef.current?.getAudioTracks()[0] || null;
+      cameraTrackRef.current = currentCameraTrack;
+      microphoneTrackRef.current = currentMicrophoneTrack;
+      screenAudioTrackRef.current = screenAudioTrack;
+      screenStreamRef.current = displayStream;
+
+      replaceOutgoingTrack('video', screenVideoTrack);
+      if (screenAudioTrack) {
+        replaceOutgoingTrack('audio', screenAudioTrack);
+      }
+
+      if (localStreamRef.current && currentCameraTrack) {
+        localStreamRef.current.removeTrack(currentCameraTrack);
+        localStreamRef.current.addTrack(screenVideoTrack);
+      }
+
+      if (screenAudioTrack && localStreamRef.current && currentMicrophoneTrack) {
+        localStreamRef.current.removeTrack(currentMicrophoneTrack);
+        localStreamRef.current.addTrack(screenAudioTrack);
+      }
+      refreshLocalPreviewStream();
+
+      screenVideoTrack.onended = () => {
+        stopScreenShare('browser-stopped');
+      };
+
+      setIsScreenSharing(true);
+      console.log('🖥️ Screen sharing started');
+      return true;
+    } catch (err) {
+      console.error('Failed to start screen share:', err);
+      setError(err.message || 'Failed to start screen sharing');
+      return false;
+    }
+  }, [initializeLocalStream, isScreenSharing, refreshLocalPreviewStream, replaceOutgoingTrack, stopScreenShare]);
 
   // Create peer connection for a specific participant
   const createPeerConnectionInstance = useCallback(async (participantId) => {
@@ -918,6 +1042,15 @@ export function useWebRTC(socket, roomId, localUserId) {
 
   // End call (close all connections)
   const endCall = useCallback(() => {
+    if (screenStreamRef.current) {
+      stopStream(screenStreamRef.current);
+      screenStreamRef.current = null;
+    }
+    setIsScreenSharing(false);
+    cameraTrackRef.current = null;
+    microphoneTrackRef.current = null;
+    screenAudioTrackRef.current = null;
+
     // Stop local stream
     if (localStreamRef.current) {
       stopStream(localStreamRef.current);
@@ -1094,6 +1227,7 @@ export function useWebRTC(socket, roomId, localUserId) {
     remoteStreams, // Map<socketId, MediaStream>
     isVideoEnabled,
     isAudioEnabled,
+    isScreenSharing,
     remoteMediaStates, // Map<socketId, {videoEnabled, audioEnabled}>
     connectionStates, // Map<socketId, connectionState>
     error,
@@ -1104,6 +1238,8 @@ export function useWebRTC(socket, roomId, localUserId) {
     handleIceCandidate,
     toggleVideo,
     toggleAudio,
+    startScreenShare,
+    stopScreenShare,
     endCall,
     removeParticipant,
     initializeLocalStream,

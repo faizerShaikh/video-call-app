@@ -179,7 +179,7 @@ export function VideoPlayer({
         autoPlay
         playsInline
         muted={muted || isLocal}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-contain"
       />
       {(!stream || !hasVideoTracks) && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-20">

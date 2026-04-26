@@ -10,10 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 import { isGetUserMediaSupported, isSecureContext } from '@/utils/webrtc';
-import { LuCopy, LuShare2 } from 'react-icons/lu';
+import { LuCopy } from 'react-icons/lu';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 export function VideoCall() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,30 +22,33 @@ export function VideoCall() {
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
   const [participantNames, setParticipantNames] = useState(new Map());
+  const [activeSharerId, setActiveSharerId] = useState(null);
+  const [isMobileView, setIsMobileView] = useState(false);
   const [error, setError] = useState(null);
   const currentRoomIdRef = useRef(null);
+  const wasScreenSharingRef = useRef(false);
 
-  const { user, logout, isAdmin } = useAuth();
+  const { user } = useAuth();
   const { socket, isConnected, error: socketError } = useSocket();
   const {
     localStream,
     remoteStreams, // Map<socketId, MediaStream>
     isVideoEnabled,
     isAudioEnabled,
+    isScreenSharing,
     remoteMediaStates, // Map<socketId, {videoEnabled, audioEnabled}>
     connectionStates, // Map<socketId, connectionState>
     error: webrtcError,
-    startCall,
     startCallWithParticipant,
     handleOffer,
     handleAnswer,
     handleIceCandidate,
     toggleVideo,
     toggleAudio,
+    startScreenShare,
+    stopScreenShare,
     endCall,
-    removeParticipant,
     initializeLocalStream,
-    resendOffer,
     updateRemoteMediaState,
     getPeerConnections, // Get peer connections map
   } = useWebRTC(socket, roomId, localUserId);
@@ -94,6 +97,24 @@ export function VideoCall() {
       console.error('Error joining room:', err);
       setError(err.message || 'Failed to join room');
     }
+  };
+
+  const handleToggleScreenShare = async () => {
+    if (!socket || !roomId) return;
+
+    if (isScreenSharing) {
+      socket.emit('screen-share:stop', { roomId, reason: 'manual' });
+      stopScreenShare('manual');
+      setActiveSharerId(null);
+      return;
+    }
+
+    if (activeSharerId && activeSharerId !== socket.id) {
+      toast.error('Someone is already sharing their screen');
+      return;
+    }
+
+    socket.emit('screen-share:start-request', { roomId });
   };
 
   // Leave room
@@ -183,6 +204,36 @@ export function VideoCall() {
       }
     });
 
+    socket.on('screen-share:start-accepted', async ({ sharerSocketId }) => {
+      if (sharerSocketId !== socket.id) return;
+      const started = await startScreenShare();
+      if (!started) {
+        socket.emit('screen-share:stop', { roomId, reason: 'start-failed' });
+        return;
+      }
+      setActiveSharerId(socket.id);
+      toast.success('Screen sharing started');
+    });
+
+    socket.on('screen-share:start-rejected', ({ reason }) => {
+      if (reason === 'already-active') {
+        toast.error('Someone is already sharing their screen');
+      } else {
+        toast.error('Unable to start screen sharing');
+      }
+    });
+
+    socket.on('screen-share:started', ({ sharerSocketId }) => {
+      setActiveSharerId(sharerSocketId);
+    });
+
+    socket.on('screen-share:stopped', ({ sharerSocketId }) => {
+      if (sharerSocketId === socket.id && isScreenSharing) {
+        stopScreenShare('server-stopped');
+      }
+      setActiveSharerId(null);
+    });
+
     // Handle user joined
     socket.on('user-joined', ({ userId, userName, socketId }) => {
       console.log('👤 User joined:', userId, userName, socketId);
@@ -235,9 +286,10 @@ export function VideoCall() {
     });
 
     // Handle room update
-    socket.on('room-update', ({ participantCount, roomId, otherParticipants, participantDetails }) => {
+    socket.on('room-update', ({ participantCount, roomId, otherParticipants, participantDetails, activeScreenShare }) => {
       console.log('📊 Room update:', { participantCount, roomId, otherParticipants, participantDetails });
       setParticipantCount(participantCount);
+      setActiveSharerId(activeScreenShare?.sharerSocketId || null);
       if (participantDetails && participantDetails.length) {
         setParticipantNames((prev) => {
           const next = new Map(prev);
@@ -310,9 +362,10 @@ export function VideoCall() {
     });
 
     // Handle room joined confirmation
-    socket.on('room-joined', ({ roomId, participantCount, otherParticipants, participantDetails }) => {
+    socket.on('room-joined', ({ roomId, participantCount, otherParticipants, participantDetails, activeScreenShare }) => {
       console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants, participantDetails });
       setParticipantCount(participantCount);
+      setActiveSharerId(activeScreenShare?.sharerSocketId || null);
       if (participantDetails && participantDetails.length) {
         setParticipantNames((prev) => {
           const next = new Map(prev);
@@ -370,24 +423,6 @@ export function VideoCall() {
       }
     });
 
-    // Cleanup on unmount
-    return () => {
-      socket.off('connect', onConnect);
-      if (offerTimeoutRef.current) {
-        clearTimeout(offerTimeoutRef.current);
-        offerTimeoutRef.current = null;
-      }
-      socket.off('offer');
-      socket.off('answer');
-      socket.off('ice-candidate');
-      socket.off('user-joined');
-      socket.off('user-left');
-      socket.off('room-update');
-      socket.off('room-joined');
-      socket.off('join-room-error');
-      socket.off('media-state');
-    };
-
     // Handle room join error
     socket.on('join-room-error', ({ message }) => {
       console.error('❌ Room join error:', message);
@@ -404,9 +439,27 @@ export function VideoCall() {
     }, 5000); // Check every 5 seconds
 
     return () => {
+      socket.off('connect', onConnect);
+      if (offerTimeoutRef.current) {
+        clearTimeout(offerTimeoutRef.current);
+        offerTimeoutRef.current = null;
+      }
+      socket.off('offer');
+      socket.off('answer');
+      socket.off('ice-candidate');
+      socket.off('user-joined');
+      socket.off('user-left');
+      socket.off('room-update');
+      socket.off('room-joined');
+      socket.off('join-room-error');
+      socket.off('media-state');
+      socket.off('screen-share:start-accepted');
+      socket.off('screen-share:start-rejected');
+      socket.off('screen-share:started');
+      socket.off('screen-share:stopped');
       clearInterval(periodicCheckInterval);
     };
-  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections]);
+  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.name, localUserId, endCall, updateRemoteMediaState]);
 
   // Display errors
   useEffect(() => {
@@ -416,6 +469,23 @@ export function VideoCall() {
       setError(`WebRTC error: ${webrtcError}`);
     }
   }, [socketError, webrtcError]);
+
+  // Keep server lock in sync when local sharing ends unexpectedly (e.g., browser stop share button)
+  useEffect(() => {
+    if (!socket || !roomId) {
+      wasScreenSharingRef.current = isScreenSharing;
+      return;
+    }
+
+    const wasScreenSharing = wasScreenSharingRef.current;
+    const didStopScreenShare = wasScreenSharing && !isScreenSharing;
+
+    if (activeSharerId === socket.id && didStopScreenShare) {
+      socket.emit('screen-share:stop', { roomId, reason: 'track-ended' });
+      setActiveSharerId(null);
+    }
+    wasScreenSharingRef.current = isScreenSharing;
+  }, [socket, roomId, activeSharerId, isScreenSharing]);
 
   // Generate random room ID
   const generateRoomId = () => {
@@ -482,6 +552,14 @@ export function VideoCall() {
       getUserMedia: isGetUserMediaSupported(),
       secureContext: isSecureContext(),
     });
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    const handleViewport = (event) => setIsMobileView(event.matches);
+    setIsMobileView(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleViewport);
+    return () => mediaQuery.removeEventListener('change', handleViewport);
   }, []);
 
   if (!hasJoinedRoom) {
@@ -599,43 +677,57 @@ export function VideoCall() {
     );
   }
 
+  const showMainHeader = !(hasJoinedRoom && isMobileView);
+  const videoAreaHeight = showMainHeader ? 'calc(100vh - 9.5rem)' : 'calc(100vh - 7rem)';
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Header hideNavigation={hasJoinedRoom} />
-      <div className="flex-1 p-4">
-        <div className="container mx-auto max-w-7xl h-[calc(100vh-4rem-1px)] flex flex-col gap-4">
-          {/* Room Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl flex justify-start items-center gap-1 font-bold">
-                Room: {roomId}
-                <div className="cursor-pointer ml-2 hover:bg-gray-200 rounded-full p-2 transition-all duration-300" onClick={() => {
-                  navigator.clipboard.writeText(roomId);
-                  toast.success('Room ID copied to clipboard');
-                }}>
-                  <LuCopy className="w-4 h-4 text-muted-foreground hover:text-gray-900" />
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleShareRoom}
-                  className="ml-2 flex items-center gap-2"
-                  title="Share room link"
+      {showMainHeader && <Header hideNavigation={hasJoinedRoom} />}
+      <div className={cn(
+            'w-full border-b rounded-lg bg-card p-3',
+            isMobileView ? 'flex flex-col gap-3' : 'grid grid-cols-[1fr_auto] items-center gap-3'
+          )}>
+            <div className="min-w-0">
+              <div className="text-lg md:text-xl flex items-center gap-2 font-bold truncate">
+                <span className="truncate">Room: {roomId}</span>
+                <button
+                  className="cursor-pointer hover:bg-gray-200 rounded-full p-2 transition-all duration-300 shrink-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(roomId);
+                    toast.success('Room ID copied to clipboard');
+                  }}
+                  title="Copy room ID"
                 >
-                  <LuShare2 className="w-4 h-4" />
-                  Share
-                </Button>
-              </h1>
+                  <LuCopy className="w-4 h-4 text-muted-foreground hover:text-gray-900" />
+                </button>
+              </div>
               <p className="text-sm text-muted-foreground">
                 {participantCount} participant{participantCount !== 1 ? 's' : ''} in room
               </p>
             </div>
-            <div className="flex items-center gap-2">            
-              <Button variant="outline" onClick={handleLeaveRoom}>
-                Leave Room
-              </Button>
+
+            <div className="w-full md:w-auto">
+              <Controls
+                isVideoEnabled={isVideoEnabled}
+                isAudioEnabled={isAudioEnabled}
+                isScreenSharing={isScreenSharing}
+                canShareScreen={!activeSharerId || activeSharerId === socket?.id}
+                screenShareMessage={activeSharerId && activeSharerId !== socket?.id ? 'Someone else is sharing' : undefined}
+                onToggleVideo={toggleVideo}
+                onToggleAudio={toggleAudio}
+                onToggleScreenShare={handleToggleScreenShare}
+                onShareRoom={handleShareRoom}
+                onLeaveRoom={handleLeaveRoom}
+                connectionState={Array.from(connectionStates.values()).some(state => state === 'connected') ? 'connected' : Array.from(connectionStates.values()).some(state => state === 'connecting') ? 'connecting' : 'disconnected'}
+                isMobileView={isMobileView}
+              />
             </div>
           </div>
+      <div className="flex-1 p-4">
+        
+        <div className="mx-auto px-5 flex flex-col gap-3" style={{ height: videoAreaHeight }}>
+          {/* Sub Top Bar */}
+          
 
         {/* Error Display */}
         {error && (
@@ -657,11 +749,12 @@ export function VideoCall() {
           // Create participants array - include local + all known remote participants
           // This ensures we show all participants even if they don't have streams yet
           const allParticipants = [
-            { id: localUserId, stream: localStream, isLocal: true },
+            { id: socket?.id || localUserId, stream: localStream, isLocal: true, displayName: 'You' },
             ...Array.from(allKnownParticipantIds).map((id) => ({
               id,
               stream: remoteStreams.get(id) || null, // null if no stream yet
               isLocal: false,
+              displayName: participantNames.get(id) || `User-${id.substring(0, 6)}`,
             }))
           ];
           
@@ -716,22 +809,64 @@ export function VideoCall() {
           
           // Render participants in grid rows
           const renderGridRows = () => {
+            if (isMobileView) {
+              return [
+                <div
+                  key="mobile-grid"
+                  className="grid gap-4 w-full"
+                  style={{ gridTemplateColumns: '1fr' }}
+                >
+                  {allParticipants.map((participant) => {
+                    const mediaState = participant.isLocal
+                      ? { videoEnabled: isVideoEnabled, audioEnabled: isAudioEnabled }
+                      : remoteMediaStates.get(participant.id) || { videoEnabled: true, audioEnabled: true };
+                    const connectionState = participant.isLocal
+                      ? 'connected'
+                      : connectionStates.get(participant.id) || 'disconnected';
+
+                    return (
+                      <div key={participant.id} className="relative w-full aspect-video rounded-lg overflow-hidden">
+                        <VideoPlayer
+                          stream={participant.stream}
+                          isLocal={participant.isLocal}
+                          isVideoEnabled={mediaState.videoEnabled}
+                          isAudioEnabled={mediaState.audioEnabled}
+                          className="h-full w-full"
+                        />
+                        {!participant.stream && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 rounded-lg">
+                            <div className="text-center text-white">
+                              <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                              <p className="text-sm">
+                                {participant.isLocal ? 'Initializing camera...' : 'Waiting for video...'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                        {participant.isLocal && (
+                          <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
+                            You
+                          </div>
+                        )}
+                        {!participant.isLocal && (
+                          <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
+                            {connectionState === 'connected' ? '✓' : '⏳'} {participantNames.get(participant.id) || `User-${participant.id.substring(0, 6)}`}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>,
+              ];
+            }
+
             const rows = [];
             let participantIndex = 0;
-            const numRows = gridConfig.rows;
-            const gapSize = 16; // gap-4 = 1rem = 16px
             
             for (let rowIndex = 0; rowIndex < gridConfig.layout.length; rowIndex++) {
               const itemsInRow = gridConfig.layout[rowIndex][0];
               const rowParticipants = allParticipants.slice(participantIndex, participantIndex + itemsInRow);
               participantIndex += itemsInRow;
-              
-              // Calculate if this row needs centering (for rows with fewer items)
-              const needsCentering = itemsInRow < gridConfig.cols;
-              
-              // Calculate height per row: (100% - gaps) / number of rows
-              const totalGapHeight = (numRows - 1) * gapSize;
-              const rowHeight = `calc((100% - ${totalGapHeight}px) / ${numRows})`;
               
               rows.push(
                 <div
@@ -739,10 +874,8 @@ export function VideoCall() {
                   className="grid gap-4 w-full"
                   style={{
                     gridTemplateColumns: `repeat(${itemsInRow}, 1fr)`,
-                    maxWidth: needsCentering ? `${(itemsInRow / gridConfig.cols) * 100}%` : '100%',
-                    margin: needsCentering ? '0 auto' : '0',
-                    height: rowHeight,
-                    minHeight: rowHeight,
+                    maxWidth: '100%',
+                    margin: '0',
                   }}
                 >
                   {rowParticipants.map((participant) => {
@@ -754,7 +887,7 @@ export function VideoCall() {
                       : connectionStates.get(participant.id) || 'disconnected';
                     
                     return (
-                      <div key={participant.id} className="relative w-full h-full">
+                      <div key={participant.id} className="relative w-full aspect-video rounded-lg overflow-hidden">
                         <VideoPlayer
                           stream={participant.stream}
                           isLocal={participant.isLocal}
@@ -791,7 +924,7 @@ export function VideoCall() {
                     Array.from({ length: itemsInRow - rowParticipants.length }).map((_, i) => (
                       <div
                         key={`placeholder-${rowIndex}-${i}`}
-                        className="w-full h-full bg-gray-900 rounded-lg flex items-center justify-center"
+                        className="w-full aspect-video bg-gray-900 rounded-lg flex items-center justify-center"
                       >
                         <p className="text-muted-foreground text-sm">Waiting...</p>
                       </div>
@@ -804,12 +937,63 @@ export function VideoCall() {
             return rows;
           };
           
+          const sharerParticipant = activeSharerId
+            ? allParticipants.find((participant) => participant.id === activeSharerId)
+            : null;
+          const shouldShowShareStage = !!sharerParticipant;
+
           return (
             <div 
-              className="flex-1 flex flex-col gap-4"
-              style={{ height: '100%', overflow: 'hidden' }}
+              className="flex-1 flex flex-col justify-center gap-4 min-h-0"
+              style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden' }}
             >
-              {renderGridRows()}
+              {shouldShowShareStage ? (
+                <div className={`flex h-full gap-4 ${isMobileView ? 'flex-col' : 'flex-row'}`}>
+                  <div className="flex-1 flex items-start justify-center">
+                    <div className="relative w-full max-h-full aspect-video rounded-lg border-2 border-primary overflow-hidden bg-black">
+                      <VideoPlayer
+                        stream={sharerParticipant.stream}
+                        isLocal={sharerParticipant.isLocal}
+                        isVideoEnabled={sharerParticipant.isLocal ? isVideoEnabled : (remoteMediaStates.get(sharerParticipant.id)?.videoEnabled ?? true)}
+                        isAudioEnabled={sharerParticipant.isLocal ? isAudioEnabled : (remoteMediaStates.get(sharerParticipant.id)?.audioEnabled ?? true)}
+                        className="h-full w-full"
+                      />
+                      <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded z-10">
+                        {sharerParticipant.isLocal ? 'You (Presenting)' : `${sharerParticipant.displayName} (Presenting)`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`${isMobileView ? 'w-full overflow-x-auto flex-row' : 'w-[200px] h-full overflow-y-auto flex-col'} shrink-0 flex gap-3`}>
+                    {allParticipants.map((participant) => {
+                      const mediaState = participant.isLocal
+                        ? { videoEnabled: isVideoEnabled, audioEnabled: isAudioEnabled }
+                        : remoteMediaStates.get(participant.id) || { videoEnabled: true, audioEnabled: true };
+                      const isPresenter = participant.id === sharerParticipant.id;
+                      return (
+                        <div
+                          key={`thumb-${participant.id}`}
+                          className={`relative ${isMobileView ? 'w-[160px] shrink-0' : 'w-[200px]'} aspect-video rounded-lg overflow-hidden border ${
+                            isPresenter ? 'border-primary' : 'border-gray-400'
+                          }`}
+                        >
+                          <VideoPlayer
+                            stream={participant.stream}
+                            isLocal={participant.isLocal}
+                            isVideoEnabled={mediaState.videoEnabled}
+                            isAudioEnabled={mediaState.audioEnabled}
+                            className="h-full w-full"
+                          />
+                          <div className="absolute top-2 left-2 bg-black/50 text-white text-xs px-2 py-1 rounded z-10">
+                            {participant.displayName}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                renderGridRows()
+              )}
               
               {/* Show message if we're waiting for more participants */}
               {participantCount > allParticipants.length && (
@@ -821,16 +1005,6 @@ export function VideoCall() {
           );
         })()}
 
-        {/* Controls */}
-        <Controls
-          isVideoEnabled={isVideoEnabled}
-          isAudioEnabled={isAudioEnabled}
-          onToggleVideo={toggleVideo}
-          onToggleAudio={toggleAudio}
-          onEndCall={handleLeaveRoom}
-          connectionState={Array.from(connectionStates.values()).some(state => state === 'connected') ? 'connected' : Array.from(connectionStates.values()).some(state => state === 'connecting') ? 'connecting' : 'disconnected'}
-          participantCount={participantCount}
-        />
         </div>
       </div>
     </div>

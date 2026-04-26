@@ -1,6 +1,7 @@
 // Room management
 const rooms = new Map();
 const participantMeta = new Map(); // socketId -> { name }
+const roomScreenShare = new Map(); // roomId -> { sharerSocketId, startedAt }
 
 const isDev = process.env.NODE_ENV !== 'production';
 const log = (...args) => isDev && console.log(...args);
@@ -33,6 +34,10 @@ function pruneRoom(io, roomId) {
     log(`🧹 Pruned ghost participant ${socketId} from room ${roomId}`);
   });
   if (participants.size === 0) rooms.delete(roomId);
+  const activeShare = roomScreenShare.get(roomId);
+  if (activeShare && !io.sockets.sockets.has(activeShare.sharerSocketId)) {
+    roomScreenShare.delete(roomId);
+  }
 }
 
 function buildParticipantDetails(roomId, excludeSocketId = null) {
@@ -43,6 +48,27 @@ function buildParticipantDetails(roomId, excludeSocketId = null) {
       socketId,
       name: participantMeta.get(socketId)?.name || `User-${socketId.substring(0, 6)}`,
     }));
+}
+
+function getScreenShareState(roomId) {
+  const activeShare = roomScreenShare.get(roomId);
+  if (!activeShare) return null;
+  return {
+    sharerSocketId: activeShare.sharerSocketId,
+    startedAt: activeShare.startedAt,
+  };
+}
+
+function stopRoomScreenShare(io, roomId, reason = 'manual') {
+  const activeShare = roomScreenShare.get(roomId);
+  if (!activeShare) return;
+  roomScreenShare.delete(roomId);
+  io.to(roomId).emit('screen-share:stopped', {
+    roomId,
+    sharerSocketId: activeShare.sharerSocketId,
+    stoppedAt: Date.now(),
+    reason,
+  });
 }
 
 // Export function to get active rooms
@@ -129,6 +155,7 @@ export function setupSocket(io) {
         roomId: normalizedRoomId,
         otherParticipants,
         participantDetails: buildParticipantDetails(normalizedRoomId),
+        activeScreenShare: getScreenShareState(normalizedRoomId),
       });
 
       socket.emit('room-joined', {
@@ -136,6 +163,7 @@ export function setupSocket(io) {
         participantCount,
         otherParticipants,
         participantDetails: otherParticipantDetails,
+        activeScreenShare: getScreenShareState(normalizedRoomId),
       });
 
       log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s)`);
@@ -216,6 +244,60 @@ export function setupSocket(io) {
       });
     });
 
+    socket.on('screen-share:start-request', ({ roomId }) => {
+      const normalizedRoomId = normalizeRoomId(roomId);
+      if (!normalizedRoomId || !rooms.has(normalizedRoomId)) {
+        socket.emit('screen-share:start-rejected', {
+          roomId: normalizedRoomId,
+          reason: 'invalid-room',
+        });
+        return;
+      }
+
+      const participants = rooms.get(normalizedRoomId);
+      if (!participants.has(socket.id)) {
+        socket.emit('screen-share:start-rejected', {
+          roomId: normalizedRoomId,
+          reason: 'not-in-room',
+        });
+        return;
+      }
+
+      const existing = roomScreenShare.get(normalizedRoomId);
+      if (existing && existing.sharerSocketId !== socket.id) {
+        socket.emit('screen-share:start-rejected', {
+          roomId: normalizedRoomId,
+          reason: 'already-active',
+          activeSharerSocketId: existing.sharerSocketId,
+        });
+        return;
+      }
+
+      const startedAt = Date.now();
+      roomScreenShare.set(normalizedRoomId, { sharerSocketId: socket.id, startedAt });
+
+      socket.emit('screen-share:start-accepted', {
+        roomId: normalizedRoomId,
+        sharerSocketId: socket.id,
+        startedAt,
+      });
+
+      io.to(normalizedRoomId).emit('screen-share:started', {
+        roomId: normalizedRoomId,
+        sharerSocketId: socket.id,
+        startedAt,
+      });
+    });
+
+    socket.on('screen-share:stop', ({ roomId, reason = 'manual' }) => {
+      const normalizedRoomId = normalizeRoomId(roomId);
+      if (!normalizedRoomId) return;
+      const activeShare = roomScreenShare.get(normalizedRoomId);
+      if (!activeShare) return;
+      if (activeShare.sharerSocketId !== socket.id) return;
+      stopRoomScreenShare(io, normalizedRoomId, reason);
+    });
+
     // Handle disconnection
     socket.on('disconnect', (reason) => {
       log(`❌ User disconnected: ${socket.id} (${reason})`);
@@ -231,7 +313,12 @@ export function setupSocket(io) {
           roomId,
           otherParticipants: remainingParticipants,
           participantDetails: buildParticipantDetails(roomId),
+          activeScreenShare: getScreenShareState(roomId),
         });
+        const activeShare = roomScreenShare.get(roomId);
+        if (activeShare && activeShare.sharerSocketId === socket.id) {
+          stopRoomScreenShare(io, roomId, 'disconnect');
+        }
       });
       participantMeta.delete(socket.id);
     });
@@ -249,6 +336,7 @@ export function setupSocket(io) {
           roomId: requestedNormalizedRoomId,
           otherParticipants,
           participantDetails: buildParticipantDetails(requestedNormalizedRoomId),
+          activeScreenShare: getScreenShareState(requestedNormalizedRoomId),
         });
       }
     });
@@ -271,7 +359,12 @@ export function setupSocket(io) {
           roomId: normalizedRoomId,
           otherParticipants: remainingParticipants,
           participantDetails: buildParticipantDetails(normalizedRoomId),
+          activeScreenShare: getScreenShareState(normalizedRoomId),
         });
+        const activeShare = roomScreenShare.get(normalizedRoomId);
+        if (activeShare && activeShare.sharerSocketId === socket.id) {
+          stopRoomScreenShare(io, normalizedRoomId, 'leave-room');
+        }
       }
       participantMeta.delete(socket.id);
     });
