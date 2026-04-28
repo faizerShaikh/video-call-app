@@ -25,7 +25,7 @@ async function fetchTurnCredentials() {
   return response.json();
 }
 
-function buildTurnIceServer(credentials) {
+function buildSelfHostedTurnIceServer(credentials) {
   const turnUrl = import.meta.env.VITE_TURN_URL;
   const turnsUrl = import.meta.env.VITE_TURNS_URL;
 
@@ -41,6 +41,16 @@ function buildTurnIceServer(credentials) {
   };
 }
 
+function normalizeIceServersFromProvider(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.iceServers)) {
+    return payload.iceServers;
+  }
+  return null;
+}
+
 export async function getIceServers() {
   if (iceServerPromise) {
     return iceServerPromise;
@@ -48,13 +58,14 @@ export async function getIceServers() {
 
   iceServerPromise = (async () => {
     try {
-      const credentials = await fetchTurnCredentials();
-      const turnServer = buildTurnIceServer(credentials);
+      const payload = await fetchTurnCredentials();
+      const providerIceServers = normalizeIceServersFromProvider(payload);
 
-      if (turnServer) {
-        cachedIceServers = [STUN_SERVERS[0], turnServer];
+      if (providerIceServers && providerIceServers.length > 0) {
+        cachedIceServers = providerIceServers;
       } else {
-        cachedIceServers = [...STUN_SERVERS];
+        const turnServer = buildSelfHostedTurnIceServer(payload);
+        cachedIceServers = turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS];
       }
     } catch (error) {
       console.error('Failed to fetch TURN credentials, using STUN fallback:', error);
