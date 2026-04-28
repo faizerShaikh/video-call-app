@@ -12,6 +12,7 @@ function getTurnProvider() {
 async function getMeteredIceServers() {
   const apiKey = process.env.METERED_API_KEY;
   const meteredUrl = process.env.METERED_TURN_CREDENTIALS_URL || DEFAULT_METERED_URL;
+  const timeoutMs = Number(process.env.METERED_FETCH_TIMEOUT_MS || 8000);
 
   if (!apiKey) {
     throw new Error('METERED_API_KEY is not configured');
@@ -19,7 +20,21 @@ async function getMeteredIceServers() {
 
   const separator = meteredUrl.includes('?') ? '&' : '?';
   const endpoint = `${meteredUrl}${separator}apiKey=${encodeURIComponent(apiKey)}`;
-  const response = await fetch(endpoint, { method: 'GET' });
+  console.log("endpoint\n\n\n\n\n", endpoint, "\n\n\n\n");
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(endpoint, { method: 'GET', signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Metered credentials request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     throw new Error(`Metered credentials request failed with status ${response.status}`);
@@ -71,7 +86,7 @@ router.get('/turn-credentials', async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating TURN credentials:', error);
-    return res.status(500).json({
+    return res.status(502).json({
       message: error.message || 'Failed to generate TURN credentials',
     });
   }

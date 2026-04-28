@@ -28,7 +28,7 @@ services:
       - TURN_USERNAME_LABEL=${TURN_USERNAME_LABEL:-synchro_user}
       # Metered provider mode
       - METERED_API_KEY=${METERED_API_KEY:-}
-      - METERED_TURN_CREDENTIALS_URL=${METERED_TURN_CREDENTIALS_URL:-https://global.relay.metered.ca/api/v1/turn/credentials}
+      - METERED_TURN_CREDENTIALS_URL=${METERED_TURN_CREDENTIALS_URL:-https://synchroai.metered.live/api/v1/turn/credentials}
     depends_on:
       mongodb:
         condition: service_healthy
