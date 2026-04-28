@@ -1,0 +1,1 @@
+ sudo rsync -av --remove-source-files /dist/ /var/www/synchro-frontend/
