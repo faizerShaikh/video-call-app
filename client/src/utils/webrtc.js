@@ -1,4 +1,5 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const FORCE_TURN_RELAY = String(import.meta.env.VITE_FORCE_TURN_RELAY || '').toLowerCase() === 'true';
 
 const STUN_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -80,11 +81,17 @@ export async function getIceServers() {
 
 export async function getRTCConfig() {
   const iceServers = await getIceServers();
-  return {
+  const rtcConfig = {
     iceServers,
     iceCandidatePoolSize: 16,
     bundlePolicy: 'max-bundle',
   };
+
+  if (FORCE_TURN_RELAY) {
+    rtcConfig.iceTransportPolicy = 'relay';
+  }
+
+  return rtcConfig;
 }
 
 /**
