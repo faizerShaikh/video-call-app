@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://admin:changeme@localhost:27017/webrtc?authSource=admin';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/synchro_local';
 
 let isConnected = false;
 

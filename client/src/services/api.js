@@ -34,7 +34,11 @@ api.interceptors.response.use(
       const requestUrl = error.config?.url || '';
       const isAuthEndpoint =
         requestUrl.includes('/api/auth/login') ||
-        requestUrl.includes('/api/auth/register');
+        requestUrl.includes('/api/auth/register') ||
+        requestUrl.includes('/api/auth/forgot-password') ||
+        requestUrl.includes('/api/auth/resend-otp') ||
+        requestUrl.includes('/api/auth/verify-otp') ||
+        requestUrl.includes('/api/auth/reset-password');
 
       // Don't hard-redirect for expected auth failures (e.g. wrong login credentials)
       if (isAuthEndpoint) {
@@ -56,6 +60,10 @@ export const authAPI = {
   login: (data) => api.post('/api/auth/login', data),
   logout: () => api.post('/api/auth/logout'),
   getMe: () => api.get('/api/auth/me'),
+  forgotPassword: (data) => api.post('/api/auth/forgot-password', data),
+  resendOtp: (data) => api.post('/api/auth/resend-otp', data),
+  verifyOtp: (data) => api.post('/api/auth/verify-otp', data),
+  resetPassword: (data) => api.post('/api/auth/reset-password', data),
 };
 
 // User API

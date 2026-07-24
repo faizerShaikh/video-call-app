@@ -140,6 +140,12 @@ export function Login() {
               )}
             </div>
 
+            <div className="flex justify-end">
+              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+                Forgot password?
+              </Link>
+            </div>
+
             <Button onClick={handleSubmit(onSubmit)} type="button" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>

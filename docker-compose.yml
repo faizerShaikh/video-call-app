@@ -29,6 +29,12 @@ services:
       # Metered provider mode
       - METERED_API_KEY=${METERED_API_KEY:-}
       - METERED_TURN_CREDENTIALS_URL=${METERED_TURN_CREDENTIALS_URL:-https://synchroai.metered.live/api/v1/turn/credentials}
+      # SMTP (Office 365) for password reset OTP emails
+      - SMTP_HOST=${SMTP_HOST:-smtp.office365.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
     depends_on:
       mongodb:
         condition: service_healthy

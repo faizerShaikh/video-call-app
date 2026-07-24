@@ -4,6 +4,9 @@ import { AuthProvider } from '@/context/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { Login } from '@/pages/Login';
 import { Register } from '@/pages/Register';
+import { ForgotPassword } from '@/pages/ForgotPassword';
+import { VerifyOtp } from '@/pages/VerifyOtp';
+import { ResetPassword } from '@/pages/ResetPassword';
 import { PendingApproval } from '@/pages/PendingApproval';
 import { Rejected } from '@/pages/Rejected';
 import { Suspended } from '@/pages/Suspended';
@@ -24,6 +27,9 @@ function App() {
           <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/verify-otp" element={<VerifyOtp />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/pending-approval" element={<PendingApproval />} />
           <Route path="/rejected" element={<Rejected />} />
           <Route path="/suspended" element={<Suspended />} />
