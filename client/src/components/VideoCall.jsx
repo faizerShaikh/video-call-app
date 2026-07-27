@@ -6,6 +6,8 @@ import { useAuth } from '@/context/AuthContext';
 import { Header } from '@/components/Header';
 import { VideoPlayer } from './VideoPlayer';
 import { Controls } from './Controls';
+import { WaitingForApproval } from '@/components/WaitingForApproval';
+import { JoinRequestModal } from '@/components/JoinRequestModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,12 +22,17 @@ export function VideoCall() {
   const [roomId, setRoomId] = useState('');
   const [localUserId] = useState(() => `user-${Math.random().toString(36).substr(2, 9)}`);
   const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
+  const [isWaitingForApproval, setIsWaitingForApproval] = useState(false);
+  const [isHost, setIsHost] = useState(false);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState([]);
+  const [busyRequesterId, setBusyRequesterId] = useState(null);
   const [participantCount, setParticipantCount] = useState(0);
   const [participantNames, setParticipantNames] = useState(new Map());
   const [activeSharerId, setActiveSharerId] = useState(null);
   const [isMobileView, setIsMobileView] = useState(false);
   const [error, setError] = useState(null);
   const currentRoomIdRef = useRef(null);
+  const isWaitingRef = useRef(false);
   const wasScreenSharingRef = useRef(false);
 
   const { user } = useAuth();
@@ -81,18 +88,17 @@ export function VideoCall() {
       // Initialize local stream
       await initializeLocalStream();
 
-      // Join room via socket with normalized room ID
+      // Request join via socket — host joins immediately; others wait for approval
       currentRoomIdRef.current = normalizedRoomId;
+      isWaitingRef.current = false;
+      setIsWaitingForApproval(false);
+      setHasJoinedRoom(false);
       socket.emit('join-room', {
         roomId: normalizedRoomId,
-        userId: user?._id || localUserId,
+        userId: user?._id || user?.id || localUserId,
         userName: user?.name || 'Guest',
+        userEmail: user?.email || null,
       });
-      setHasJoinedRoom(true);
-
-      // Don't start call here - wait for room-joined event which tells us
-      // if there are other participants. The room-joined handler will decide
-      // whether to create an offer or wait for one.
     } catch (err) {
       console.error('Error joining room:', err);
       setError(err.message || 'Failed to join room');
@@ -117,17 +123,54 @@ export function VideoCall() {
     socket.emit('screen-share:start-request', { roomId });
   };
 
+  const resetJoinState = () => {
+    currentRoomIdRef.current = null;
+    isWaitingRef.current = false;
+    setIsWaitingForApproval(false);
+    setHasJoinedRoom(false);
+    setIsHost(false);
+    setPendingJoinRequests([]);
+    setBusyRequesterId(null);
+    setRoomId('');
+    setParticipantCount(0);
+    setParticipantNames(new Map());
+    setActiveSharerId(null);
+    setError(null);
+  };
+
+  const handleCancelJoinRequest = () => {
+    if (socket && currentRoomIdRef.current) {
+      socket.emit('join-request:cancel', { roomId: currentRoomIdRef.current });
+    }
+    endCall();
+    resetJoinState();
+    if (searchParams.get('roomid')) {
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('roomid');
+      setSearchParams(newSearchParams, { replace: true });
+    }
+    toast.message('Join request cancelled');
+  };
+
+  const handleApproveJoinRequest = (requesterSocketId) => {
+    if (!socket || !roomId) return;
+    setBusyRequesterId(requesterSocketId);
+    socket.emit('join-request:approve', { roomId, requesterSocketId });
+  };
+
+  const handleRejectJoinRequest = (requesterSocketId) => {
+    if (!socket || !roomId) return;
+    setBusyRequesterId(requesterSocketId);
+    socket.emit('join-request:reject', { roomId, requesterSocketId });
+  };
+
   // Leave room
   const handleLeaveRoom = () => {
-    currentRoomIdRef.current = null;
     if (socket && roomId) {
       socket.emit('leave-room', { roomId });
     }
     endCall();
-    setHasJoinedRoom(false);
-    setRoomId('');
-    setParticipantCount(0);
-    setError(null);
+    resetJoinState();
     
     // Clear roomid query parameter from URL
     if (searchParams.get('roomid')) {
@@ -147,11 +190,13 @@ export function VideoCall() {
       if (!roomToRejoin) return;
       endCall();
       setRoomId(roomToRejoin);
-      setHasJoinedRoom(true);
+      setHasJoinedRoom(false);
+      setPendingJoinRequests([]);
       socket.emit('join-room', {
         roomId: roomToRejoin,
-        userId: user?._id || localUserId,
+        userId: user?._id || user?.id || localUserId,
         userName: user?.name || 'Guest',
+        userEmail: user?.email || null,
       });
       setError(null);
     };
@@ -361,9 +406,13 @@ export function VideoCall() {
       }
     });
 
-    // Handle room joined confirmation
-    socket.on('room-joined', ({ roomId, participantCount, otherParticipants, participantDetails, activeScreenShare }) => {
-      console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants, participantDetails });
+    // Handle room joined confirmation (admitted — host or approved guest)
+    socket.on('room-joined', ({ roomId, participantCount, otherParticipants, participantDetails, activeScreenShare, isHost: joinedAsHost, hostSocketId }) => {
+      console.log('✅ Room joined successfully:', { roomId, participantCount, otherParticipants, participantDetails, joinedAsHost, hostSocketId });
+      isWaitingRef.current = false;
+      setIsWaitingForApproval(false);
+      setHasJoinedRoom(true);
+      setIsHost(Boolean(joinedAsHost) || hostSocketId === socket.id);
       setParticipantCount(participantCount);
       setActiveSharerId(activeScreenShare?.sharerSocketId || null);
       if (participantDetails && participantDetails.length) {
@@ -423,11 +472,75 @@ export function VideoCall() {
       }
     });
 
+    socket.on('join-request-pending', ({ roomId: pendingRoomId, message }) => {
+      console.log('⏳ Waiting for host approval', pendingRoomId);
+      isWaitingRef.current = true;
+      setIsWaitingForApproval(true);
+      setHasJoinedRoom(false);
+      setRoomId(pendingRoomId);
+      currentRoomIdRef.current = pendingRoomId;
+      toast.message(message || 'Waiting for host approval');
+    });
+
+    socket.on('join-request-approved', ({ message }) => {
+      toast.success(message || 'You were admitted to the meeting');
+    });
+
+    socket.on('join-request-rejected', ({ message }) => {
+      toast.error(message || 'Your join request was denied');
+      endCall();
+      resetJoinState();
+      setError(message || 'Your request to join was denied by the host.');
+    });
+
+    socket.on('join-request-cancelled', ({ message, reason }) => {
+      if (reason === 'cancelled') return;
+      toast.error(message || 'Your join request was cancelled');
+      endCall();
+      resetJoinState();
+      setError(message || 'Your join request was cancelled.');
+    });
+
+    socket.on('join-request', (request) => {
+      setPendingJoinRequests((prev) => {
+        const without = prev.filter((r) => r.requesterSocketId !== request.requesterSocketId);
+        return [...without, request];
+      });
+    });
+
+    socket.on('pending-join-requests', ({ requests }) => {
+      setPendingJoinRequests(Array.isArray(requests) ? requests : []);
+      setBusyRequesterId(null);
+    });
+
+    socket.on('join-request:resolved', ({ requesterSocketId }) => {
+      setPendingJoinRequests((prev) =>
+        prev.filter((r) => r.requesterSocketId !== requesterSocketId)
+      );
+      setBusyRequesterId((current) => (current === requesterSocketId ? null : current));
+    });
+
+    socket.on('join-request:error', ({ message }) => {
+      toast.error(message || 'Unable to process join request');
+      setBusyRequesterId(null);
+    });
+
+    socket.on('host-changed', ({ hostSocketId }) => {
+      const nowHost = hostSocketId === socket.id;
+      setIsHost(nowHost);
+      if (nowHost) {
+        toast.message('You are now the meeting host');
+      }
+    });
+
     // Handle room join error
     socket.on('join-room-error', ({ message }) => {
       console.error('❌ Room join error:', message);
       setError(`Failed to join room: ${message}`);
+      isWaitingRef.current = false;
+      setIsWaitingForApproval(false);
       setHasJoinedRoom(false);
+      currentRoomIdRef.current = null;
     });
 
     // Periodic check for missing connections (especially important for 5+ participants)
@@ -452,6 +565,15 @@ export function VideoCall() {
       socket.off('room-update');
       socket.off('room-joined');
       socket.off('join-room-error');
+      socket.off('join-request-pending');
+      socket.off('join-request-approved');
+      socket.off('join-request-rejected');
+      socket.off('join-request-cancelled');
+      socket.off('join-request');
+      socket.off('pending-join-requests');
+      socket.off('join-request:resolved');
+      socket.off('join-request:error');
+      socket.off('host-changed');
       socket.off('media-state');
       socket.off('screen-share:start-accepted');
       socket.off('screen-share:start-rejected');
@@ -459,7 +581,7 @@ export function VideoCall() {
       socket.off('screen-share:stopped');
       clearInterval(periodicCheckInterval);
     };
-  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.name, localUserId, endCall, updateRemoteMediaState]);
+  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall, updateRemoteMediaState]);
 
   // Display errors
   useEffect(() => {
@@ -496,7 +618,7 @@ export function VideoCall() {
   // Check for roomid query parameter and auto-join
   useEffect(() => {
     const roomIdParam = searchParams.get('roomid');
-    if (roomIdParam && !hasJoinedRoom && socket && isConnected) {
+    if (roomIdParam && !hasJoinedRoom && !isWaitingForApproval && socket && isConnected) {
       const normalizedRoomId = normalizeRoomId(roomIdParam);
       setRoomId(normalizedRoomId);
       // Small delay to ensure state is updated
@@ -505,7 +627,7 @@ export function VideoCall() {
       }, 500);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, socket, isConnected, hasJoinedRoom]);
+  }, [searchParams, socket, isConnected, hasJoinedRoom, isWaitingForApproval]);
 
   // Generate shareable link
   const getShareableLink = () => {
@@ -561,6 +683,16 @@ export function VideoCall() {
     mediaQuery.addEventListener('change', handleViewport);
     return () => mediaQuery.removeEventListener('change', handleViewport);
   }, []);
+
+  if (isWaitingForApproval) {
+    return (
+      <WaitingForApproval
+        roomId={roomId || currentRoomIdRef.current}
+        userName={user?.name}
+        onCancel={handleCancelJoinRequest}
+      />
+    );
+  }
 
   if (!hasJoinedRoom) {
     return (
@@ -682,6 +814,14 @@ export function VideoCall() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      {isHost && (
+        <JoinRequestModal
+          requests={pendingJoinRequests}
+          onApprove={handleApproveJoinRequest}
+          onReject={handleRejectJoinRequest}
+          busyRequesterId={busyRequesterId}
+        />
+      )}
       {showMainHeader && <Header hideNavigation={hasJoinedRoom} />}
       <div className={cn(
             'w-full border-b rounded-lg bg-card p-3',
@@ -690,6 +830,11 @@ export function VideoCall() {
             <div className="min-w-0">
               <div className="text-lg md:text-xl flex items-center gap-2 font-bold truncate">
                 <span className="truncate">Room: {roomId}</span>
+                {isHost && (
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+                    Host
+                  </span>
+                )}
                 <button
                   className="cursor-pointer hover:bg-gray-200 rounded-full p-2 transition-all duration-300 shrink-0"
                   onClick={() => {
@@ -703,6 +848,9 @@ export function VideoCall() {
               </div>
               <p className="text-sm text-muted-foreground">
                 {participantCount} participant{participantCount !== 1 ? 's' : ''} in room
+                {pendingJoinRequests.length > 0 && isHost
+                  ? ` · ${pendingJoinRequests.length} waiting`
+                  : ''}
               </p>
             </div>
 
