@@ -90,6 +90,20 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
     }
   };
 
+  const handleTogglePro = async () => {
+    setProcessing(true);
+    try {
+      await adminAPI.togglePro(userId, { isPro: !user.isPro });
+      toast.success(`User ${!user.isPro ? 'upgraded to' : 'removed from'} Pro`);
+      if (onUserUpdated) onUserUpdated();
+      fetchUser();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to update Pro status');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleUnsuspend = async () => {
     setProcessing(true);
     try {
@@ -201,6 +215,30 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
                       </div>
                     )}
                   </div>
+
+                  {!user.isAdmin && (
+                    <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                      <div>
+                        <Label className="text-muted-foreground">Pro User</Label>
+                        <p className="text-sm mt-1">
+                          {user.isPro ? 'This user has Pro access' : 'Standard user'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleTogglePro}
+                        disabled={processing}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                          user.isPro ? 'bg-amber-500' : 'bg-gray-200 dark:bg-gray-700'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            user.isPro ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  )}
 
                   {user.rejectionReason && (
                     <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">

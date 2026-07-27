@@ -352,6 +352,38 @@ export const deleteUser = async (req, res) => {
   }
 };
 
+// Toggle Pro status
+export const togglePro = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isPro } = req.body;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    user.isPro = !!isPro;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: `User ${isPro ? 'upgraded to' : 'removed from'} Pro`,
+      user: user.toJSON()
+    });
+  } catch (error) {
+    console.error('Toggle pro error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update Pro status'
+    });
+  }
+};
+
 // Get dashboard statistics
 export const getDashboardStats = async (req, res) => {
   try {

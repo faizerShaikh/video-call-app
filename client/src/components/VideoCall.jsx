@@ -30,10 +30,13 @@ export function VideoCall() {
   const [participantNames, setParticipantNames] = useState(new Map());
   const [activeSharerId, setActiveSharerId] = useState(null);
   const [isMobileView, setIsMobileView] = useState(false);
+  const [showProFeatureDialog, setShowProFeatureDialog] = useState(false);
+  const [showLeaveConfirmDialog, setShowLeaveConfirmDialog] = useState(false);
   const [error, setError] = useState(null);
   const currentRoomIdRef = useRef(null);
   const isWaitingRef = useRef(false);
   const wasScreenSharingRef = useRef(false);
+  const allowUnloadRef = useRef(false);
 
   const { user } = useAuth();
   const { socket, isConnected, error: socketError } = useSocket();
@@ -98,6 +101,7 @@ export function VideoCall() {
         userId: user?._id || user?.id || localUserId,
         userName: user?.name || 'Guest',
         userEmail: user?.email || null,
+        isPro: user?.isPro || false,
       });
     } catch (err) {
       console.error('Error joining room:', err);
@@ -107,6 +111,11 @@ export function VideoCall() {
 
   const handleToggleScreenShare = async () => {
     if (!socket || !roomId) return;
+
+    if (!(user?.isPro)) {
+      setShowProFeatureDialog(true);
+      return;
+    }
 
     if (isScreenSharing) {
       socket.emit('screen-share:stop', { roomId, reason: 'manual' });
@@ -120,7 +129,7 @@ export function VideoCall() {
       return;
     }
 
-    socket.emit('screen-share:start-request', { roomId });
+    socket.emit('screen-share:start-request', { roomId, isPro: true });
   };
 
   const resetJoinState = () => {
@@ -178,6 +187,44 @@ export function VideoCall() {
       newSearchParams.delete('roomid');
       setSearchParams(newSearchParams, { replace: true });
     }
+  };
+
+  // Warn user before leaving during active meeting
+  useEffect(() => {
+    if (!hasJoinedRoom) return;
+
+    const LEAVE_MESSAGE = 'Refreshing or leaving this page will disconnect you from the meeting.';
+
+    const beforeUnloadHandler = (e) => {
+      if (allowUnloadRef.current) return;
+      e.preventDefault();
+      e.returnValue = LEAVE_MESSAGE;
+      return LEAVE_MESSAGE;
+    };
+
+    // Intercept reload shortcuts so we can show our custom dialog
+    // (browsers always replace custom beforeunload text with a generic message)
+    const keydownHandler = (e) => {
+      const isReload =
+        e.key === 'F5' ||
+        ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R'));
+      if (!isReload) return;
+      e.preventDefault();
+      setShowLeaveConfirmDialog(true);
+    };
+
+    window.addEventListener('beforeunload', beforeUnloadHandler);
+    window.addEventListener('keydown', keydownHandler);
+    return () => {
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      window.removeEventListener('keydown', keydownHandler);
+    };
+  }, [hasJoinedRoom]);
+
+  const handleConfirmLeavePage = () => {
+    allowUnloadRef.current = true;
+    setShowLeaveConfirmDialog(false);
+    window.location.reload();
   };
 
   // Socket event handlers
@@ -822,6 +869,62 @@ export function VideoCall() {
           busyRequesterId={busyRequesterId}
         />
       )}
+
+      {showProFeatureDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <Card className="w-full max-w-md shadow-xl">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                  PRO
+                </span>
+                <CardTitle>Pro Feature</CardTitle>
+              </div>
+              <CardDescription>
+                Screen Sharing is a Pro feature. Get the Pro plan to use this feature.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                className="w-full"
+                onClick={() => setShowProFeatureDialog(false)}
+              >
+                Got it
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {showLeaveConfirmDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <Card className="w-full max-w-md shadow-xl">
+            <CardHeader>
+              <CardTitle>Leave meeting?</CardTitle>
+              <CardDescription>
+                Refreshing or leaving this page will disconnect you from the meeting.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowLeaveConfirmDialog(false)}
+              >
+                Stay
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={handleConfirmLeavePage}
+              >
+                Leave
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {showMainHeader && <Header hideNavigation={hasJoinedRoom} />}
       <div className={cn(
             'w-full border-b rounded-lg bg-card p-3',
@@ -861,6 +964,7 @@ export function VideoCall() {
                 isScreenSharing={isScreenSharing}
                 canShareScreen={!activeSharerId || activeSharerId === socket?.id}
                 screenShareMessage={activeSharerId && activeSharerId !== socket?.id ? 'Someone else is sharing' : undefined}
+                isPro={user?.isPro || false}
                 onToggleVideo={toggleVideo}
                 onToggleAudio={toggleAudio}
                 onToggleScreenShare={handleToggleScreenShare}

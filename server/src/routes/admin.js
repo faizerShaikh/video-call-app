@@ -10,7 +10,8 @@ import {
   unsuspendUser,
   bulkApprove,
   deleteUser,
-  getDashboardStats
+  getDashboardStats,
+  togglePro
 } from '../controllers/adminController.js';
 
 const router = express.Router();
@@ -29,6 +30,7 @@ router.post('/users/:id/approve', approveUser);
 router.post('/users/:id/reject', rejectUser);
 router.post('/users/:id/suspend', suspendUser);
 router.post('/users/:id/unsuspend', unsuspendUser);
+router.post('/users/:id/toggle-pro', togglePro);
 router.delete('/users/:id', deleteUser);
 router.post('/users/bulk-approve', bulkApprove);
 

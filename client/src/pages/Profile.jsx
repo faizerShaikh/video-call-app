@@ -33,6 +33,7 @@ const passwordSchema = z.object({
   path: ['confirmPassword'],
 });
 
+
 export function Profile() {
   const { user, updateUser, logout } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -55,7 +56,7 @@ export function Profile() {
     register: registerPassword,
     handleSubmit: handlePasswordSubmit,
     formState: { errors: passwordErrors },
-    reset: resetPassword,
+    reset: resetPasswordForm,
   } = useForm({
     resolver: zodResolver(passwordSchema),
   });
@@ -93,7 +94,7 @@ export function Profile() {
         newPassword: data.newPassword,
       });
       toast.success('Password changed successfully');
-      resetPassword();
+      resetPasswordForm();
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to change password');
     } finally {

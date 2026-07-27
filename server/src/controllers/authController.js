@@ -160,6 +160,7 @@ export const login = async (req, res) => {
         email: userResponse.email,
         phone: userResponse.phone,
         isAdmin: userResponse.isAdmin,
+        isPro: userResponse.isPro || false,
         status: userResponse.status,
         createdAt: userResponse.createdAt
       }

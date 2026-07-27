@@ -84,6 +84,7 @@ export const adminAPI = {
   deleteUser: (id) => api.delete(`/api/admin/users/${id}`),
   bulkApprove: (data) => api.post('/api/admin/users/bulk-approve', data),
   getDashboardStats: () => api.get('/api/admin/dashboard/stats'),
+  togglePro: (id, data) => api.post(`/api/admin/users/${id}/toggle-pro`, data),
 };
 
 export default api;

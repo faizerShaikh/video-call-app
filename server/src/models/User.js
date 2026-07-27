@@ -26,12 +26,16 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Password is required'],
     minlength: [8, 'Password must be at least 8 characters'],
-    select: false // Don't return password by default
+    select: false
   },
   isAdmin: {
     type: Boolean,
     default: false,
     index: true
+  },
+  isPro: {
+    type: Boolean,
+    default: false
   },
   status: {
     type: String,
@@ -73,12 +77,55 @@ const userSchema = new mongoose.Schema({
   lastLoginAt: {
     type: Date,
     default: null
-  }
+  },
+  // Password reset OTP fields (stored on user directly)
+  otpHash: {
+    type: String,
+    default: null,
+    select: false
+  },
+  otpExpiresAt: {
+    type: Date,
+    default: null,
+    select: false
+  },
+  otpUsed: {
+    type: Boolean,
+    default: false,
+    select: false
+  },
+  otpAttempts: {
+    type: Number,
+    default: 0,
+    select: false
+  },
+  resetTokenHash: {
+    type: String,
+    default: null,
+    select: false
+  },
+  resetTokenExpiresAt: {
+    type: Date,
+    default: null,
+    select: false
+  },
+  resetTokenUsed: {
+    type: Boolean,
+    default: false,
+    select: false
+  },
 }, {
-  timestamps: true, // Adds createdAt and updatedAt
+  timestamps: true,
   toJSON: {
     transform: function(doc, ret) {
       delete ret.password;
+      delete ret.otpHash;
+      delete ret.otpExpiresAt;
+      delete ret.otpUsed;
+      delete ret.otpAttempts;
+      delete ret.resetTokenHash;
+      delete ret.resetTokenExpiresAt;
+      delete ret.resetTokenUsed;
       return ret;
     }
   }
@@ -92,11 +139,9 @@ userSchema.index({ createdAt: -1 });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
-  // Only hash the password if it has been modified (or is new)
   if (!this.isModified('password')) return next();
 
   try {
-    // Hash password with cost of 10
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
     next();
@@ -113,6 +158,17 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 // Method to check if user can login
 userSchema.methods.canLogin = function() {
   return this.status === 'approved';
+};
+
+// Clear OTP/reset fields
+userSchema.methods.clearResetFields = function() {
+  this.otpHash = null;
+  this.otpExpiresAt = null;
+  this.otpUsed = false;
+  this.otpAttempts = 0;
+  this.resetTokenHash = null;
+  this.resetTokenExpiresAt = null;
+  this.resetTokenUsed = false;
 };
 
 // Static method to find user by email

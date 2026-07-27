@@ -1,14 +1,15 @@
 import crypto from 'crypto';
 import User from '../models/User.js';
-import PasswordReset from '../models/PasswordReset.js';
 import { sendOtpEmail } from '../utils/email.js';
 import { validateEmail, validatePasswordStrength } from '../utils/validation.js';
 
 const OTP_LENGTH = 6;
-const OTP_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
-const RESET_TOKEN_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+const OTP_EXPIRY_MS = 10 * 60 * 1000;
+const RESET_TOKEN_EXPIRY_MS = 15 * 60 * 1000;
 const MAX_OTP_ATTEMPTS = 5;
 const GENERIC_SEND_MESSAGE = 'If an account exists with this email, a verification code has been sent.';
+
+const OTP_FIELDS = '+otpHash +otpExpiresAt +otpUsed +otpAttempts +resetTokenHash +resetTokenExpiresAt +resetTokenUsed';
 
 const hashValue = (value) =>
   crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -18,29 +19,20 @@ const generateOtp = () =>
 
 const generateResetToken = () => crypto.randomBytes(32).toString('hex');
 
-const findActiveReset = async (email) => {
-  return PasswordReset.findOne({ email }).sort({ createdAt: -1 });
-};
-
 const createAndSendOtp = async (user) => {
   const otp = generateOtp();
-  const email = user.email.toLowerCase();
 
-  await PasswordReset.deleteMany({ email });
-
-  await PasswordReset.create({
-    email,
-    otpHash: hashValue(otp),
-    otpExpiresAt: new Date(Date.now() + OTP_EXPIRY_MS),
-    otpUsed: false,
-    attempts: 0,
-    resetTokenHash: null,
-    resetTokenExpiresAt: null,
-    resetTokenUsed: false,
-  });
+  user.otpHash = hashValue(otp);
+  user.otpExpiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
+  user.otpUsed = false;
+  user.otpAttempts = 0;
+  user.resetTokenHash = null;
+  user.resetTokenExpiresAt = null;
+  user.resetTokenUsed = false;
+  await user.save();
 
   await sendOtpEmail({
-    to: email,
+    to: user.email,
     otp,
     name: user.name,
   });
@@ -59,9 +51,8 @@ export const forgotPassword = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
+    const user = await User.findByEmail(normalizedEmail).select(OTP_FIELDS);
 
-    // Do not reveal whether the email exists
     if (!user) {
       return res.json({
         success: true,
@@ -106,7 +97,7 @@ export const resendOtp = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
+    const user = await User.findByEmail(normalizedEmail).select(OTP_FIELDS);
 
     if (!user) {
       return res.json({
@@ -159,42 +150,42 @@ export const verifyOtp = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const resetRecord = await findActiveReset(normalizedEmail);
+    const user = await User.findByEmail(normalizedEmail).select(OTP_FIELDS);
 
-    if (!resetRecord || !resetRecord.otpHash) {
+    if (!user || !user.otpHash) {
       return res.status(400).json({
         success: false,
         error: 'Invalid or expired verification code',
       });
     }
 
-    if (resetRecord.otpUsed) {
+    if (user.otpUsed) {
       return res.status(400).json({
         success: false,
         error: 'This verification code has already been used',
       });
     }
 
-    if (!resetRecord.otpExpiresAt || resetRecord.otpExpiresAt.getTime() < Date.now()) {
+    if (!user.otpExpiresAt || user.otpExpiresAt.getTime() < Date.now()) {
       return res.status(400).json({
         success: false,
         error: 'Verification code has expired. Please request a new one.',
       });
     }
 
-    if (resetRecord.attempts >= MAX_OTP_ATTEMPTS) {
+    if (user.otpAttempts >= MAX_OTP_ATTEMPTS) {
       return res.status(429).json({
         success: false,
         error: 'Too many invalid attempts. Please request a new verification code.',
       });
     }
 
-    const isMatch = resetRecord.otpHash === hashValue(otp);
+    const isMatch = user.otpHash === hashValue(otp);
     if (!isMatch) {
-      resetRecord.attempts += 1;
-      await resetRecord.save();
+      user.otpAttempts += 1;
+      await user.save();
 
-      const remaining = MAX_OTP_ATTEMPTS - resetRecord.attempts;
+      const remaining = MAX_OTP_ATTEMPTS - user.otpAttempts;
       return res.status(400).json({
         success: false,
         error: remaining > 0
@@ -205,12 +196,12 @@ export const verifyOtp = async (req, res) => {
 
     const resetToken = generateResetToken();
 
-    resetRecord.otpUsed = true;
-    resetRecord.otpHash = null;
-    resetRecord.resetTokenHash = hashValue(resetToken);
-    resetRecord.resetTokenExpiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
-    resetRecord.resetTokenUsed = false;
-    await resetRecord.save();
+    user.otpUsed = true;
+    user.otpHash = null;
+    user.resetTokenHash = hashValue(resetToken);
+    user.resetTokenExpiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
+    user.resetTokenUsed = false;
+    await user.save();
 
     return res.json({
       success: true,
@@ -262,7 +253,7 @@ export const resetPassword = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail).select('+password');
+    const user = await User.findByEmail(normalizedEmail).select('+password ' + OTP_FIELDS);
 
     if (!user) {
       return res.status(400).json({
@@ -271,33 +262,28 @@ export const resetPassword = async (req, res) => {
       });
     }
 
-    const resetRecord = await findActiveReset(normalizedEmail);
-
-    if (!resetRecord || !resetRecord.resetTokenHash) {
+    if (!user.resetTokenHash) {
       return res.status(400).json({
         success: false,
         error: 'Invalid or expired reset session. Please verify your email again.',
       });
     }
 
-    if (resetRecord.resetTokenUsed) {
+    if (user.resetTokenUsed) {
       return res.status(400).json({
         success: false,
         error: 'This reset session has already been used',
       });
     }
 
-    if (
-      !resetRecord.resetTokenExpiresAt ||
-      resetRecord.resetTokenExpiresAt.getTime() < Date.now()
-    ) {
+    if (!user.resetTokenExpiresAt || user.resetTokenExpiresAt.getTime() < Date.now()) {
       return res.status(400).json({
         success: false,
         error: 'Reset session has expired. Please request a new verification code.',
       });
     }
 
-    if (resetRecord.resetTokenHash !== hashValue(resetToken)) {
+    if (user.resetTokenHash !== hashValue(resetToken)) {
       return res.status(400).json({
         success: false,
         error: 'Invalid or expired reset session. Please verify your email again.',
@@ -305,19 +291,8 @@ export const resetPassword = async (req, res) => {
     }
 
     user.password = password;
+    user.clearResetFields();
     await user.save();
-
-    resetRecord.resetTokenUsed = true;
-    resetRecord.resetTokenHash = null;
-    resetRecord.otpHash = null;
-    resetRecord.otpUsed = true;
-    await resetRecord.save();
-
-    // Invalidate any other outstanding reset records for this email
-    await PasswordReset.deleteMany({
-      email: normalizedEmail,
-      _id: { $ne: resetRecord._id },
-    });
 
     return res.json({
       success: true,

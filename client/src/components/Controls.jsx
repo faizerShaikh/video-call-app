@@ -19,6 +19,7 @@ export function Controls({
   isScreenSharing,
   canShareScreen,
   screenShareMessage,
+  isPro,
   onToggleVideo,
   onToggleAudio,
   onToggleScreenShare,
@@ -125,55 +126,71 @@ export function Controls({
       </ControlWithTooltip>
 
       {/* Screen Share Toggle */}
-      <ControlWithTooltip tooltip={screenShareMessage || (isScreenSharing ? 'Stop screen share' : 'Share your screen')}>
-        <Button
-          variant={isScreenSharing ? 'destructive' : 'outline'}
-          size="lg"
-          onClick={onToggleScreenShare}
-          disabled={!canShareScreen}
-          className="rounded-full w-14 h-14"
-          title={screenShareMessage || (isScreenSharing ? 'Stop screen share' : 'Share your screen')}
-        >
-          {isScreenSharing ? (
-            // Stop/cancel screen sharing icon
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4h16v10H4z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 20h8M12 14v6M6 6l12 6M18 6L6 12"
-              />
-            </svg>
-          ) : (
-            // Start screen sharing icon
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9.75 17L8 21m8-4l1.75 4M4 3h16a1 1 0 011 1v11a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z"
-              />
-            </svg>
+      <ControlWithTooltip tooltip={
+        !isPro
+          ? 'Screen Sharing is a Pro feature'
+          : screenShareMessage || (isScreenSharing ? 'Stop screen share' : 'Share your screen')
+      }>
+        <div className="relative">
+          <Button
+            variant={isScreenSharing ? 'destructive' : 'outline'}
+            size="lg"
+            onClick={onToggleScreenShare}
+            disabled={isPro && !canShareScreen}
+            className={cn(
+              'rounded-full w-14 h-14',
+              !isPro && 'opacity-70'
+            )}
+            title={
+              !isPro
+                ? 'Screen Sharing is a Pro feature'
+                : screenShareMessage || (isScreenSharing ? 'Stop screen share' : 'Share your screen')
+            }
+          >
+            {isScreenSharing ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4h16v10H4z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 20h8M12 14v6M6 6l12 6M18 6L6 12"
+                />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-6 w-6"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9.75 17L8 21m8-4l1.75 4M4 3h16a1 1 0 011 1v11a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z"
+                />
+              </svg>
+            )}
+          </Button>
+          {!isPro && (
+            <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+              PRO
+            </span>
           )}
-        </Button>
+        </div>
       </ControlWithTooltip>
 
       <ControlWithTooltip tooltip="Share room link">
@@ -231,4 +248,3 @@ export function Controls({
     </div>
   );
 }
-

@@ -3,7 +3,10 @@ const rooms = new Map(); // roomId -> Set<socketId>
 const participantMeta = new Map(); // socketId -> { name, email, userId }
 const roomScreenShare = new Map(); // roomId -> { sharerSocketId, startedAt }
 const roomHosts = new Map(); // roomId -> hostSocketId
+const roomHostMeta = new Map(); // roomId -> { isPro }
 const pendingJoins = new Map(); // roomId -> Map<socketId, { userId, userName, userEmail, requestedAt }>
+
+const NON_PRO_PARTICIPANT_LIMIT = 3;
 
 const isDev = process.env.NODE_ENV !== 'production';
 const log = (...args) => isDev && console.log(...args);
@@ -79,6 +82,14 @@ function removePendingRequester(io, roomId, requesterSocketId, notifyHost = true
   return true;
 }
 
+function isRoomFull(roomId) {
+  const meta = roomHostMeta.get(roomId);
+  if (meta?.isPro) return false;
+  const participants = rooms.get(roomId);
+  if (!participants) return false;
+  return participants.size >= NON_PRO_PARTICIPANT_LIMIT;
+}
+
 function findPendingRoomForSocket(socketId) {
   for (const [roomId, pending] of pendingJoins.entries()) {
     if (pending.has(socketId)) return roomId;
@@ -95,6 +106,7 @@ function removeSocketFromRoom(io, roomId, socketId) {
   if (participants.size === 0) {
     rooms.delete(roomId);
     roomHosts.delete(roomId);
+    roomHostMeta.delete(roomId);
     rejectAllPending(
       io,
       roomId,
@@ -188,6 +200,7 @@ function pruneRoom(io, roomId) {
   if (participants.size === 0) {
     rooms.delete(roomId);
     roomHosts.delete(roomId);
+    roomHostMeta.delete(roomId);
     rejectAllPending(
       io,
       roomId,
@@ -285,6 +298,7 @@ function admitParticipant(io, socket, normalizedRoomId, { userId, userName, user
     hostSocketId: roomHosts.get(normalizedRoomId) || null,
   });
 
+  const hostMeta = roomHostMeta.get(normalizedRoomId);
   socket.emit('room-joined', {
     roomId: normalizedRoomId,
     participantCount,
@@ -293,6 +307,8 @@ function admitParticipant(io, socket, normalizedRoomId, { userId, userName, user
     activeScreenShare: getScreenShareState(normalizedRoomId),
     isHost,
     hostSocketId: roomHosts.get(normalizedRoomId) || null,
+    isProMeeting: !!hostMeta?.isPro,
+    participantLimit: hostMeta?.isPro ? null : NON_PRO_PARTICIPANT_LIMIT,
   });
 
   log(`📊 Room "${normalizedRoomId}" now has ${participantCount} participant(s); host=${roomHosts.get(normalizedRoomId)}`);
@@ -334,7 +350,7 @@ export function setupSocket(io) {
     };
 
     // Join a room (first participant becomes host; others wait for approval)
-    socket.on('join-room', ({ roomId, userId, userName, userEmail }) => {
+    socket.on('join-room', ({ roomId, userId, userName, userEmail, isPro }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
       if (!normalizedRoomId) {
         socket.emit('join-room-error', { message: 'Invalid room ID' });
@@ -358,6 +374,7 @@ export function setupSocket(io) {
       if (!hasLiveParticipants) {
         removePendingRequester(io, normalizedRoomId, socket.id, false);
         clearPendingForRoom(normalizedRoomId);
+        roomHostMeta.set(normalizedRoomId, { isPro: !!isPro });
         admitParticipant(
           io,
           socket,
@@ -387,7 +404,7 @@ export function setupSocket(io) {
       }
 
       if (!hostSocketId) {
-        // Fallback: treat as empty room
+        roomHostMeta.set(normalizedRoomId, { isPro: !!isPro });
         admitParticipant(
           io,
           socket,
@@ -487,6 +504,13 @@ export function setupSocket(io) {
           message: 'Requester is no longer connected',
         });
         notifyHostPendingList(io, normalizedRoomId);
+        return;
+      }
+
+      if (isRoomFull(normalizedRoomId)) {
+        socket.emit('join-request:error', {
+          message: 'Participant limit reached (max 3 for non-Pro meetings). Cannot admit more users.',
+        });
         return;
       }
 
@@ -646,7 +670,7 @@ export function setupSocket(io) {
       });
     });
 
-    socket.on('screen-share:start-request', ({ roomId }) => {
+    socket.on('screen-share:start-request', ({ roomId, isPro }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
       if (!normalizedRoomId || !rooms.has(normalizedRoomId)) {
         socket.emit('screen-share:start-rejected', {
@@ -661,6 +685,14 @@ export function setupSocket(io) {
         socket.emit('screen-share:start-rejected', {
           roomId: normalizedRoomId,
           reason: 'not-in-room',
+        });
+        return;
+      }
+
+      if (!isPro) {
+        socket.emit('screen-share:start-rejected', {
+          roomId: normalizedRoomId,
+          reason: 'pro-required',
         });
         return;
       }

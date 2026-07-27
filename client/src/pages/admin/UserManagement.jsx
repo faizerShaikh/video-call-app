@@ -22,6 +22,24 @@ export function UserManagement() {
   const [suspendReason, setSuspendReason] = useState('');
   const [showSuspendModal, setShowSuspendModal] = useState(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(null);
+  const [proToggling, setProToggling] = useState(new Set());
+
+  const handleTogglePro = async (userId, currentIsPro) => {
+    setProToggling((prev) => new Set(prev).add(userId));
+    try {
+      await adminAPI.togglePro(userId, { isPro: !currentIsPro });
+      toast.success(`User ${!currentIsPro ? 'upgraded to' : 'removed from'} Pro`);
+      fetchUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to update Pro status');
+    } finally {
+      setProToggling((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -205,6 +223,7 @@ export function UserManagement() {
                     <th className="text-left p-4 font-medium">Email</th>
                     <th className="text-left p-4 font-medium">Phone</th>
                     <th className="text-left p-4 font-medium">Status</th>
+                    <th className="text-center p-4 font-medium">Pro</th>
                     <th className="text-left p-4 font-medium">Registered</th>
                     <th className="text-right p-4 font-medium">Actions</th>
                   </tr>
@@ -212,7 +231,7 @@ export function UserManagement() {
                 <tbody>
                   {users.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                      <td colSpan={7} className="p-8 text-center text-muted-foreground">
                         No users found
                       </td>
                     </tr>
@@ -230,6 +249,23 @@ export function UserManagement() {
                           >
                             {user.status}
                           </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          {!user.isAdmin && (
+                            <button
+                              onClick={() => handleTogglePro(user._id, user.isPro)}
+                              disabled={proToggling.has(user._id)}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                                user.isPro ? 'bg-amber-500' : 'bg-gray-200 dark:bg-gray-700'
+                              }`}
+                            >
+                              <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                  user.isPro ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                              />
+                            </button>
+                          )}
                         </td>
                         <td className="p-4 text-sm text-muted-foreground">
                           {new Date(user.createdAt).toLocaleDateString()}

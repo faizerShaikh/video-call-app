@@ -165,17 +165,20 @@ export async function getUserMedia(constraints = { video: true, audio: true }) {
     throw new Error('getUserMedia is not available');
   } catch (error) {
     console.error('Error getting user media:', error);
-    
-    // Provide more helpful error messages
+
+    // Don't mutate error.message — it's read-only in Edge and some Chromium builds
+    let message = error?.message || 'Failed to access camera/microphone';
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-      error.message = 'Camera/microphone access denied. Please allow permissions and try again.';
+      message = 'Camera/microphone access denied. Please allow permissions and try again.';
     } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-      error.message = 'No camera/microphone found. Please connect a device and try again.';
+      message = 'No camera/microphone found. Please connect a device and try again.';
     } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-      error.message = 'Camera/microphone is already in use by another application.';
+      message = 'Camera/microphone is already in use by another application.';
     }
-    
-    throw error;
+
+    const friendlyError = new Error(message);
+    friendlyError.name = error.name || 'MediaError';
+    throw friendlyError;
   }
 }
 

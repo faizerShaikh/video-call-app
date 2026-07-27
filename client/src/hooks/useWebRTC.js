@@ -171,6 +171,15 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.log('🖥️ Screen sharing started');
       return true;
     } catch (err) {
+      // User cancelled the screen share picker — not an error
+      if (
+        err.name === 'NotAllowedError' ||
+        err.name === 'PermissionDeniedError' ||
+        err.name === 'AbortError'
+      ) {
+        console.log('🖥️ Screen sharing cancelled by user');
+        return false;
+      }
       console.error('Failed to start screen share:', err);
       setError(err.message || 'Failed to start screen sharing');
       return false;
