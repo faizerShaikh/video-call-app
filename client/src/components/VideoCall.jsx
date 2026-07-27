@@ -8,6 +8,7 @@ import { VideoPlayer } from './VideoPlayer';
 import { Controls } from './Controls';
 import { WaitingForApproval } from '@/components/WaitingForApproval';
 import { JoinRequestModal } from '@/components/JoinRequestModal';
+import { UserGuidePanel } from '@/components/UserGuidePanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -745,113 +746,127 @@ export function VideoCall() {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <Header />
-        <div className="flex-1 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Join Video Call</CardTitle>
-            <CardDescription>
-              Enter a room ID to join or create a new room
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Browser support warnings */}
-            {!browserSupport.secureContext && (
-              <div className="p-3 bg-yellow-500/10 text-yellow-600 text-sm rounded-md border border-yellow-500/20">
-                <p className="font-semibold mb-1">⚠️ Secure Context Required</p>
-                <p className="text-xs">
-                  WebRTC requires HTTPS or localhost. You're accessing via HTTP from a network IP.
-                  For best results, access via <code className="bg-yellow-500/20 px-1 rounded">localhost:5173</code> or set up HTTPS.
-                </p>
-              </div>
-            )}
-
-            {!browserSupport.getUserMedia && (
-              <div className="p-3 bg-red-500/10 text-red-600 text-sm rounded-md border border-red-500/20">
-                <p className="font-semibold mb-1">❌ Browser Not Supported</p>
-                <p className="text-xs">
-                  Your browser doesn't support getUserMedia. Please use Chrome, Firefox, or Edge.
-                </p>
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="roomId">Room ID</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="roomId"
-                  placeholder="Enter room ID (e.g., 1, room1)"
-                  value={roomId}
-                  onChange={(e) => setRoomId(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
-                  onBlur={(e) => {
-                    // Normalize on blur to show user the actual room ID
-                    const normalized = normalizeRoomId(e.target.value);
-                    if (normalized && normalized !== e.target.value) {
-                      setRoomId(normalized);
-                    }
-                  }}
-                />
-                <Button variant="outline" onClick={generateRoomId} title="Generate random room ID">
-                  🎲
-                </Button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md">
-                {error}
-              </div>
-            )}
-
-            {socketError && (
-              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md">
-                <p className="font-semibold">Connection Error:</p>
-                <p className="text-xs mt-1">{socketError}</p>
-                <p className="text-xs mt-2 text-muted-foreground">
-                  Make sure the server is running on port 3001
-                </p>
-              </div>
-            )}
-
-            {!isConnected && !socketError && (
-              <div className="p-3 bg-yellow-500/10 text-yellow-600 text-sm rounded-md flex items-center gap-2">
-                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                Connecting to server...
-              </div>
-            )}
-
-            {isConnected && (
-              <div className="p-3 bg-green-500/10 text-green-600 text-sm rounded-md flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                Connected to server
-              </div>
-            )}
-
-            {/* Debug info */}
-            {import.meta.env.DEV && (
-              <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer hover:text-foreground">Debug Info</summary>
-                <div className="mt-2 space-y-1 p-2 bg-muted rounded">
-                  <p>Socket URL: {socket?.io?.uri || window.location.hostname + ':3001'}</p>
-                  <p>Connection Status: {isConnected ? '✅ Connected' : '❌ Disconnected'}</p>
-                  <p>Socket ID: {socket?.id || 'N/A'}</p>
-                  {socket?.io?.engine && (
-                    <p>Transport: {socket.io.engine.transport.name}</p>
+        <div className="relative flex-1 min-h-0">
+          <div className="absolute inset-0 flex items-center justify-center p-4 md:p-6">
+            <Card className="w-full max-w-md shadow-sm">
+                <CardHeader>
+                  <CardTitle>Join Video Call</CardTitle>
+                  <CardDescription>
+                    Enter a room ID to join or create a new room
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Browser support warnings */}
+                  {!browserSupport.secureContext && (
+                    <div className="p-3 bg-yellow-500/10 text-yellow-600 text-sm rounded-md border border-yellow-500/20">
+                      <p className="font-semibold mb-1">⚠️ Secure Context Required</p>
+                      <p className="text-xs">
+                        WebRTC requires HTTPS or localhost. You're accessing via HTTP from a network IP.
+                        For best results, access via <code className="bg-yellow-500/20 px-1 rounded">localhost:5173</code> or set up HTTPS.
+                      </p>
+                    </div>
                   )}
-                </div>
-              </details>
-            )}
 
-            <Button
-              onClick={handleJoinRoom}
-              disabled={!isConnected || !roomId.trim()}
-              className="w-full"
-              size="lg"
-            >
-              {isConnected ? 'Join Room' : 'Connecting...'}
-            </Button>
-          </CardContent>
-        </Card>
+                  {!browserSupport.getUserMedia && (
+                    <div className="p-3 bg-red-500/10 text-red-600 text-sm rounded-md border border-red-500/20">
+                      <p className="font-semibold mb-1">❌ Browser Not Supported</p>
+                      <p className="text-xs">
+                        Your browser doesn't support getUserMedia. Please use Chrome, Firefox, or Edge.
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="roomId">Room ID</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="roomId"
+                        placeholder="Enter room ID (e.g., 1, room1)"
+                        value={roomId}
+                        onChange={(e) => setRoomId(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
+                        onBlur={(e) => {
+                          // Normalize on blur to show user the actual room ID
+                          const normalized = normalizeRoomId(e.target.value);
+                          if (normalized && normalized !== e.target.value) {
+                            setRoomId(normalized);
+                          }
+                        }}
+                      />
+                      <Button variant="outline" onClick={generateRoomId} title="Generate random room ID">
+                        🎲
+                      </Button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md">
+                      {error}
+                    </div>
+                  )}
+
+                  {socketError && (
+                    <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md">
+                      <p className="font-semibold">Connection Error:</p>
+                      <p className="text-xs mt-1">{socketError}</p>
+                      <p className="text-xs mt-2 text-muted-foreground">
+                        Make sure the server is running on port 3001
+                      </p>
+                    </div>
+                  )}
+
+                  {!isConnected && !socketError && (
+                    <div className="p-3 bg-yellow-500/10 text-yellow-600 text-sm rounded-md flex items-center gap-2">
+                      <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                      Connecting to server...
+                    </div>
+                  )}
+
+                  {isConnected && (
+                    <div className="p-3 bg-green-500/10 text-green-600 text-sm rounded-md flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      Connected to server
+                    </div>
+                  )}
+
+                  {/* Debug info */}
+                  {import.meta.env.DEV && (
+                    <details className="text-xs text-muted-foreground">
+                      <summary className="cursor-pointer hover:text-foreground">Debug Info</summary>
+                      <div className="mt-2 space-y-1 p-2 bg-muted rounded">
+                        <p>Socket URL: {socket?.io?.uri || window.location.hostname + ':3001'}</p>
+                        <p>Connection Status: {isConnected ? '✅ Connected' : '❌ Disconnected'}</p>
+                        <p>Socket ID: {socket?.id || 'N/A'}</p>
+                        {socket?.io?.engine && (
+                          <p>Transport: {socket.io.engine.transport.name}</p>
+                        )}
+                      </div>
+                    </details>
+                  )}
+
+                  <Button
+                    onClick={handleJoinRoom}
+                    disabled={!isConnected || !roomId.trim()}
+                    className="w-full"
+                    size="lg"
+                  >
+                    {isConnected ? 'Join Room' : 'Connecting...'}
+                  </Button>
+                </CardContent>
+              </Card>
+          </div>
+
+          {user && (
+            <div className="hidden lg:flex absolute right-4 top-4 bottom-4 w-[min(380px,28vw)] flex-col">
+              <UserGuidePanel />
+            </div>
+          )}
         </div>
+
+        {user && (
+          <div className="lg:hidden border-t p-4">
+            <UserGuidePanel />
+          </div>
+        )}
       </div>
     );
   }
