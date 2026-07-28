@@ -169,14 +169,14 @@ export function UserGuidePanel() {
 
   if (isHidden) {
     return (
-      <div className="w-full h-full">
+      <div className="w-full">
         <Card className="border-dashed">
-          <CardContent className="flex items-center justify-between gap-3 p-4">
-            <div>
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <p className="font-medium">Guide hidden</p>
               <p className="text-sm text-muted-foreground">Show it again whenever you need help.</p>
             </div>
-            <Button variant="outline" onClick={showGuide}>
+            <Button variant="outline" onClick={showGuide} className="w-full shrink-0 sm:w-auto">
               Show Guide
             </Button>
           </CardContent>
@@ -188,11 +188,11 @@ export function UserGuidePanel() {
   return (
     <aside className="flex h-full w-full min-h-0 flex-col">
       <Card className="flex h-full min-h-0 flex-col overflow-hidden border-border/70 shadow-sm">
-        <CardHeader className="border-b bg-muted/30">
+        <CardHeader className="shrink-0 border-b bg-muted/30 p-4 sm:p-6">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-xl">How to Use Synchro</CardTitle>
-              <CardDescription className="mt-1">
+            <div className="min-w-0">
+              <CardTitle className="text-lg sm:text-xl">How to Use Synchro</CardTitle>
+              <CardDescription className="mt-1 text-xs sm:text-sm">
                 A quick, always-available guide while you work from the meeting page.
               </CardDescription>
             </div>
@@ -201,7 +201,7 @@ export function UserGuidePanel() {
               size="icon"
               onClick={hideGuide}
               aria-label="Hide guide"
-              className="shrink-0"
+              className="h-8 w-8 shrink-0"
             >
               <LuX className="h-4 w-4" />
             </Button>
@@ -217,7 +217,7 @@ export function UserGuidePanel() {
           </div>
         </CardHeader>
 
-        <CardContent className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
+        <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 sm:space-y-6 sm:p-4">
           <div className="space-y-3">
             {filteredSections.map((section, index) => {
               const Icon = section.icon;
@@ -231,22 +231,22 @@ export function UserGuidePanel() {
                   <button
                     type="button"
                     onClick={() => toggleSection(section.id)}
-                    className="flex w-full items-start gap-3 p-4 text-left"
+                    className="flex w-full items-start gap-2 p-3 text-left sm:gap-3 sm:p-4"
                   >
-                    <div className="mt-0.5 rounded-lg bg-primary/10 p-2 text-primary">
+                    <div className="mt-0.5 rounded-lg bg-primary/10 p-2 text-primary shrink-0">
                       <Icon className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <span className="text-xs font-semibold text-muted-foreground">
                           {index + 1}.
                         </span>
-                        <span className="font-medium">{section.title}</span>
+                        <span className="font-medium text-sm sm:text-base truncate">{section.title}</span>
                         {section.pro && <ProBadge />}
                       </div>
-                      <p className="mt-1 text-sm text-muted-foreground">{section.summary}</p>
+                      <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{section.summary}</p>
                     </div>
-                    <div className="pt-1 text-muted-foreground">
+                    <div className="pt-1 text-muted-foreground shrink-0">
                       {isExpanded ? <LuChevronUp className="h-4 w-4" /> : <LuChevronDown className="h-4 w-4" />}
                     </div>
                   </button>
@@ -257,12 +257,12 @@ export function UserGuidePanel() {
                     }`}
                   >
                     <div className="min-h-0">
-                      <div className="border-t px-4 pb-4 pt-3">
-                        <ul className="space-y-2 text-sm text-muted-foreground">
+                      <div className="border-t px-3 pb-3 pt-3 sm:px-4 sm:pb-4">
+                        <ul className="space-y-2 text-xs text-muted-foreground sm:text-sm">
                           {section.points.map((point) => (
                             <li key={point} className="flex gap-2">
-                              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary/60" />
-                              <span>{point}</span>
+                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+                              <span className="min-w-0 break-words">{point}</span>
                             </li>
                           ))}
                         </ul>
@@ -280,16 +280,16 @@ export function UserGuidePanel() {
             )}
           </div>
 
-          <div className="rounded-xl border bg-muted/20 p-4">
+          <div className="rounded-xl border bg-muted/20 p-3 sm:p-4">
             <div className="mb-3 flex items-center gap-2">
-              <LuLightbulb className="h-4 w-4 text-primary" />
-              <h3 className="font-medium">Quick Tips</h3>
+              <LuLightbulb className="h-4 w-4 shrink-0 text-primary" />
+              <h3 className="font-medium text-sm sm:text-base">Quick Tips</h3>
             </div>
-            <ul className="space-y-2 text-sm text-muted-foreground">
+            <ul className="space-y-2 text-xs text-muted-foreground sm:text-sm">
               {QUICK_TIPS.map((tip) => (
                 <li key={tip} className="flex gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary/60" />
-                  <span>{tip}</span>
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+                  <span className="min-w-0 break-words">{tip}</span>
                 </li>
               ))}
             </ul>
