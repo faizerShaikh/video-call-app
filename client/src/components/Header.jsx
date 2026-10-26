@@ -1,96 +1,75 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { Button } from '@/components/ui/button';
-import { LuLogOut, LuUser } from 'react-icons/lu';
-import { cn } from '@/lib/utils';
+import { BrandMark } from '@/components/HomeScreen';
+
+function initials(name) {
+  if (!name) return 'U';
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+}
 
 export function Header({ hideNavigation = false }) {
-    const { user, logout, isAdmin } = useAuth();
-    const location = useLocation();
+  const { user, logout, isAdmin } = useAuth();
+  const location = useLocation();
+  const onHome = location.pathname === '/call';
+  const onAdmin = location.pathname.startsWith('/admin');
 
-    const isActive = (path) => {
-        if (path === '/call') {
-            return location.pathname === '/call';
-        }
-        if (path === '/admin') {
-            return location.pathname.startsWith('/admin');
-        }
-        return false;
-    };
+  return (
+    <header className="sticky top-0 z-40 flex items-center gap-4 border-b border-[#E6EBED] bg-white px-4 py-3.5 sm:gap-8 sm:px-10 sm:py-[18px]">
+      <Link to="/call" className="flex items-center gap-2.5 text-[18px] font-bold tracking-[-0.01em] text-[#0F2A44]">
+        <BrandMark />
+        <span className="hidden min-[380px]:inline">Synchro</span>
+      </Link>
 
-    return (
-        <header className="border-b bg-background sticky top-0 z-40">
-            <div className="container mx-auto px-4">
-                <div className="flex items-center justify-between h-16">
-                    {/* Logo */}
-                    <Link to="/call" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                        <img src="/logo.png" alt="Synchro Logo" className="w-auto h-[54px] object-contain" />
-                    </Link>
+      {!hideNavigation && (
+        <nav className="hidden flex-1 items-center gap-7 md:flex" aria-label="Main">
+          <Link
+            to="/call"
+            aria-current={onHome ? 'page' : undefined}
+            className={`border-b-2 py-1.5 text-[15px] font-medium ${
+              onHome ? 'border-[#0F2A44] text-[#0F2A44]' : 'border-transparent text-[#6B7A84]'
+            }`}
+          >
+            Home
+          </Link>
+          {isAdmin && (
+            <Link
+              to="/admin"
+              aria-current={onAdmin ? 'page' : undefined}
+              className={`border-b-2 py-1.5 text-[15px] font-medium ${
+                onAdmin ? 'border-[#0F2A44] text-[#0F2A44]' : 'border-transparent text-[#6B7A84]'
+              }`}
+            >
+              Admin
+            </Link>
+          )}
+        </nav>
+      )}
 
-                    {/* Navigation Tabs - Hidden during active call */}
-                    {!hideNavigation && (
-                        <div className="flex items-center gap-1">
-                            {isAdmin &&
-                                <Link to="/call">
-                                    <Button
-                                        variant={'ghost'}
-                                        size="sm"
-                                        className={cn(
-                                            'h-9 px-4',
-                                            isActive('/call') && 'text-primary font-semibold'
-                                        )}
-                                    >
-                                        Home
-                                    </Button>
-                                </Link>}
-                            {isAdmin && (
-                                <Link to="/admin">
-                                    <Button
-                                        variant={'ghost'}
-                                        size="sm"
-                                        className={cn(
-                                            'h-9 px-4',
-                                            isActive('/admin') && 'text-primary font-semibold'
-                                        )}
-                                    >
-                                        Admin
-                                    </Button>
-                                </Link>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Right side - User info and Logout */}
-                    <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-                        {/* Profile link - Hidden during active call */}
-                        {!hideNavigation && (
-                            <Link to="/profile" className="hover:bg-accent hover:text-accent-foreground rounded-md p-2 hover:text-gray-700 hover:font-medium transition-all duration-300 text-muted-foreground cursor-pointer min-w-0">
-                                <div className="flex items-center gap-2 text-sm min-w-0">
-                                    <LuUser className="w-4 h-4 shrink-0" />
-                                    <span className="truncate max-w-[96px] sm:max-w-[160px]">{user?.name || 'User'}</span>
-                                </div>
-                            </Link>
-                        )}
-                        {/* User name without link - Shown during active call */}
-                        {hideNavigation && (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
-                                <LuUser className="w-4 h-4 shrink-0" />
-                                <span className="truncate max-w-[96px] sm:max-w-[160px]">{user?.name || 'User'}</span>
-                            </div>
-                        )}
-
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={logout}
-                            className="flex items-center gap-2"
-                        >
-                            <LuLogOut className="w-4 h-4" />
-                            Logout
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        </header>
-    );
+      <div className={`flex items-center gap-3 text-sm text-[#6B7A84] sm:gap-4 ${hideNavigation ? 'ml-auto' : 'ml-auto md:ml-0'}`}>
+        {!hideNavigation && (
+          <Link to="/profile" className="hidden max-w-[140px] truncate font-medium hover:text-[#0F2A44] sm:inline">
+            {user?.name || 'User'}
+          </Link>
+        )}
+        {hideNavigation && (
+          <span className="hidden max-w-[140px] truncate sm:inline">{user?.name || 'User'}</span>
+        )}
+        <Link
+          to="/profile"
+          className="grid h-[34px] w-[34px] place-items-center rounded-full bg-[#0F2A44] text-xs font-semibold text-white"
+          aria-label="Account"
+        >
+          {initials(user?.name)}
+        </Link>
+        <button type="button" onClick={logout} className="border-0 bg-transparent px-1 py-2.5 text-sm text-[#6B7A84] hover:text-[#0F2A44]">
+          Log out
+        </button>
+      </div>
+    </header>
+  );
 }

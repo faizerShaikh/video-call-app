@@ -8,12 +8,12 @@ import { VideoPlayer } from './VideoPlayer';
 import { Controls } from './Controls';
 import { WaitingForApproval } from '@/components/WaitingForApproval';
 import { JoinRequestModal } from '@/components/JoinRequestModal';
-import { UserGuidePanel } from '@/components/UserGuidePanel';
+import { HomeScreen } from '@/components/HomeScreen';
+import { GUIDE_STORAGE_KEY, UserGuidePanel } from '@/components/UserGuidePanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { isGetUserMediaSupported, isSecureContext } from '@/utils/webrtc';
 import { LuCopy } from 'react-icons/lu';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -33,6 +33,10 @@ export function VideoCall() {
   const [isMobileView, setIsMobileView] = useState(false);
   const [showProFeatureDialog, setShowProFeatureDialog] = useState(false);
   const [showLeaveConfirmDialog, setShowLeaveConfirmDialog] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem(GUIDE_STORAGE_KEY) !== 'true';
+  });
   const [error, setError] = useState(null);
   const currentRoomIdRef = useRef(null);
   const isWaitingRef = useRef(false);
@@ -71,7 +75,8 @@ export function VideoCall() {
 
   // Join room
   const handleJoinRoom = async (roomIdToJoin) => {
-    const normalizedRoomId = normalizeRoomId(roomId || roomIdToJoin);
+    const explicitId = typeof roomIdToJoin === 'string' ? roomIdToJoin : '';
+    const normalizedRoomId = normalizeRoomId(explicitId || roomId);
     
     if (!normalizedRoomId) {
       setError('Please enter a room ID');
@@ -657,12 +662,6 @@ export function VideoCall() {
     wasScreenSharingRef.current = isScreenSharing;
   }, [socket, roomId, activeSharerId, isScreenSharing]);
 
-  // Generate random room ID
-  const generateRoomId = () => {
-    const id = Math.random().toString(36).substr(2, 9);
-    setRoomId(id);
-  };
-
   // Check for roomid query parameter and auto-join
   useEffect(() => {
     const roomIdParam = searchParams.get('roomid');
@@ -711,19 +710,6 @@ export function VideoCall() {
     }
   };
 
-  // Check browser support
-  const [browserSupport, setBrowserSupport] = useState({
-    getUserMedia: isGetUserMediaSupported(),
-    secureContext: isSecureContext(),
-  });
-
-  useEffect(() => {
-    setBrowserSupport({
-      getUserMedia: isGetUserMediaSupported(),
-      secureContext: isSecureContext(),
-    });
-  }, []);
-
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 768px)');
     const handleViewport = (event) => setIsMobileView(event.matches);
@@ -744,134 +730,45 @@ export function VideoCall() {
 
   if (!hasJoinedRoom) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="min-h-screen bg-[#F6F8F8] flex flex-col">
         <Header />
-        <div className="relative flex-1 min-h-0 overflow-y-auto">
-          {/* Join card — true page center */}
-          <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4 sm:p-6">
-            <Card className="w-full max-w-md shadow-sm">
-              <CardHeader className="space-y-1.5 p-4 sm:p-6">
-                <CardTitle className="text-xl sm:text-2xl">Join Video Call</CardTitle>
-                <CardDescription>
-                  Enter a room ID to join or create a new room
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 p-4 pt-0 sm:p-6 sm:pt-0">
-                {!browserSupport.secureContext && (
-                  <div className="p-3 bg-yellow-500/10 text-yellow-600 text-sm rounded-md border border-yellow-500/20">
-                    <p className="font-semibold mb-1">⚠️ Secure Context Required</p>
-                    <p className="text-xs">
-                      WebRTC requires HTTPS or localhost. You're accessing via HTTP from a network IP.
-                      For best results, access via <code className="bg-yellow-500/20 px-1 rounded">localhost:5173</code> or set up HTTPS.
-                    </p>
-                  </div>
-                )}
-
-                {!browserSupport.getUserMedia && (
-                  <div className="p-3 bg-red-500/10 text-red-600 text-sm rounded-md border border-red-500/20">
-                    <p className="font-semibold mb-1">❌ Browser Not Supported</p>
-                    <p className="text-xs">
-                      Your browser doesn't support getUserMedia. Please use Chrome, Firefox, or Edge.
-                    </p>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="roomId">Room ID</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="roomId"
-                      placeholder="Enter room ID (e.g., 1, room1)"
-                      value={roomId}
-                      onChange={(e) => setRoomId(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
-                      onBlur={(e) => {
-                        const normalized = normalizeRoomId(e.target.value);
-                        if (normalized && normalized !== e.target.value) {
-                          setRoomId(normalized);
-                        }
-                      }}
-                      className="min-w-0 flex-1"
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={generateRoomId}
-                      title="Generate random room ID"
-                      className="shrink-0"
-                    >
-                      🎲
-                    </Button>
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md">
-                    {error}
-                  </div>
-                )}
-
-                {socketError && (
-                  <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md">
-                    <p className="font-semibold">Connection Error:</p>
-                    <p className="text-xs mt-1">{socketError}</p>
-                    <p className="text-xs mt-2 text-muted-foreground">
-                      Make sure the server is running on port 3001
-                    </p>
-                  </div>
-                )}
-
-                {!isConnected && !socketError && (
-                  <div className="p-3 bg-yellow-500/10 text-yellow-600 text-sm rounded-md flex items-center gap-2">
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
-                    Connecting to server...
-                  </div>
-                )}
-
-                {isConnected && (
-                  <div className="p-3 bg-green-500/10 text-green-600 text-sm rounded-md flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    Connected to server
-                  </div>
-                )}
-
-                {import.meta.env.DEV && (
-                  <details className="text-xs text-muted-foreground">
-                    <summary className="cursor-pointer hover:text-foreground">Debug Info</summary>
-                    <div className="mt-2 space-y-1 p-2 bg-muted rounded break-all">
-                      <p>Socket URL: {socket?.io?.uri || window.location.hostname + ':3001'}</p>
-                      <p>Connection Status: {isConnected ? '✅ Connected' : '❌ Disconnected'}</p>
-                      <p>Socket ID: {socket?.id || 'N/A'}</p>
-                      {socket?.io?.engine && (
-                        <p>Transport: {socket.io.engine.transport.name}</p>
-                      )}
-                    </div>
-                  </details>
-                )}
-
-                <Button
-                  onClick={handleJoinRoom}
-                  disabled={!isConnected || !roomId.trim()}
-                  className="w-full"
-                  size="lg"
-                >
-                  {isConnected ? 'Join Room' : 'Connecting...'}
-                </Button>
-              </CardContent>
-            </Card>
+        <div className="relative flex flex-1 flex-col xl:flex-row xl:items-start">
+          <div className="mx-auto min-w-0 w-full flex-1">
+            <HomeScreen
+              isConnected={isConnected}
+              connectionError={socketError}
+              joinError={error}
+              onStartMeeting={(id) => handleJoinRoom(id)}
+              onJoinRoom={(id) => handleJoinRoom(id)}
+            />
           </div>
-
-          {/* Desktop: guide pinned to right corner */}
-          {user && (
-            <div className="hidden xl:flex absolute right-4 top-4 bottom-4 w-[380px] flex-col">
-              <UserGuidePanel />
+          {user && guideOpen && (
+            <div className="w-full px-4 pb-6 xl:sticky xl:top-[88px] xl:h-[calc(100vh-6.5rem)] xl:w-[400px] xl:shrink-0 xl:px-0 xl:pr-4 xl:pb-4">
+              <UserGuidePanel
+                onClose={() => {
+                  setGuideOpen(false);
+                  window.localStorage.setItem(GUIDE_STORAGE_KEY, 'true');
+                }}
+              />
             </div>
           )}
-
-          {/* Mobile / tablet: guide below join section */}
-          {user && (
-            <div className="xl:hidden px-4 pb-6 sm:px-6">
-              <UserGuidePanel />
-            </div>
+          {user && !guideOpen && (
+            <button
+              type="button"
+              onClick={() => {
+                setGuideOpen(true);
+                window.localStorage.setItem(GUIDE_STORAGE_KEY, 'false');
+              }}
+              className="group fixed bottom-6 right-5 z-30 inline-flex items-center gap-2.5 rounded-full border border-[#E6EBED] bg-white py-1.5 pl-1.5 pr-4 text-sm font-semibold text-[#0F2A44] shadow-[0_10px_30px_rgba(15,42,68,0.14)] transition duration-200 hover:-translate-y-0.5 hover:border-[#1C6E6E]/40"
+            >
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-[#1C6E6E] text-white transition group-hover:bg-[#155858]">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 7v14" />
+                  <path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" />
+                </svg>
+              </span>
+              Guide
+            </button>
           )}
         </div>
       </div>

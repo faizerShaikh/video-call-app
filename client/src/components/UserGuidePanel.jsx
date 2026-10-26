@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,7 @@ import {
   LuX,
 } from 'react-icons/lu';
 
-const GUIDE_STORAGE_KEY = 'synchro-user-guide-hidden';
+export const GUIDE_STORAGE_KEY = 'synchro-user-guide-hidden';
 
 const GUIDE_SECTIONS = [
   {
@@ -119,20 +119,14 @@ function ProBadge() {
   );
 }
 
-export function UserGuidePanel() {
+export function UserGuidePanel({ onClose }) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [isHidden, setIsHidden] = useState(false);
   const [expandedSections, setExpandedSections] = useState(() =>
     GUIDE_SECTIONS.reduce((acc, section, index) => {
       acc[section.id] = index < 2;
       return acc;
     }, {})
   );
-
-  useEffect(() => {
-    const hiddenPreference = window.localStorage.getItem(GUIDE_STORAGE_KEY);
-    setIsHidden(hiddenPreference === 'true');
-  }, []);
 
   const filteredSections = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -157,34 +151,6 @@ export function UserGuidePanel() {
     }));
   };
 
-  const hideGuide = () => {
-    setIsHidden(true);
-    window.localStorage.setItem(GUIDE_STORAGE_KEY, 'true');
-  };
-
-  const showGuide = () => {
-    setIsHidden(false);
-    window.localStorage.setItem(GUIDE_STORAGE_KEY, 'false');
-  };
-
-  if (isHidden) {
-    return (
-      <div className="w-full">
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="font-medium">Guide hidden</p>
-              <p className="text-sm text-muted-foreground">Show it again whenever you need help.</p>
-            </div>
-            <Button variant="outline" onClick={showGuide} className="w-full shrink-0 sm:w-auto">
-              Show Guide
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <aside className="flex h-full w-full min-h-0 flex-col">
       <Card className="flex h-full min-h-0 flex-col overflow-hidden border-border/70 shadow-sm">
@@ -199,7 +165,7 @@ export function UserGuidePanel() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={hideGuide}
+              onClick={onClose}
               aria-label="Hide guide"
               className="h-8 w-8 shrink-0"
             >

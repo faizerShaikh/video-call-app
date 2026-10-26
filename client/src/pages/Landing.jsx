@@ -4,13 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 export function Landing() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+    <div className="min-h-screen bg-[#F6F8F8]">
       <div className="container mx-auto px-4 py-16">
         <div className="text-center mb-16">
           <div className="flex items-center justify-center gap-4 mb-6">
             <img src="/logo.png" alt="Synchro Logo" className="w-16 h-16 object-contain" />
             <div className="text-left">
-              <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+              <h1 className="text-5xl font-bold text-[#0F2A44]">
                 Synchro
               </h1>
               <p className="text-lg text-muted-foreground mt-1">Seamless Connections</p>

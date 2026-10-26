@@ -96,7 +96,7 @@ export function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 px-4 py-8">
+    <div className="min-h-screen flex items-center justify-center bg-[#F6F8F8] px-4 py-8">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4 pb-4 border-b">
