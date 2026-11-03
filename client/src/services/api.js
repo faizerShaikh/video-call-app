@@ -87,4 +87,16 @@ export const adminAPI = {
   togglePro: (id, data) => api.post(`/api/admin/users/${id}/toggle-pro`, data),
 };
 
+export const meetingAPI = {
+  save: (roomId, data) => api.put(`/api/meeting-links/${encodeURIComponent(roomId)}`, data),
+  access: (roomId) => api.get(`/api/meeting-links/${encodeURIComponent(roomId)}/access`),
+};
+
+export const calendarAPI = {
+  status: () => api.get('/api/calendar/status'),
+  start: (provider) => api.get(`/api/calendar/${provider}/start`),
+  disconnect: (provider) => api.post(`/api/calendar/${provider}/disconnect`),
+  schedule: (data) => api.post('/api/calendar/schedule', data),
+};
+
 export default api;

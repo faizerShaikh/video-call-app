@@ -114,6 +114,39 @@ const userSchema = new mongoose.Schema({
     default: false,
     select: false
   },
+  googleCalendar: {
+    type: new mongoose.Schema({
+      accessToken: String,
+      refreshToken: String,
+      expiresAt: Date,
+      email: String,
+    }, { _id: false }),
+    select: false,
+  },
+  outlookCalendar: {
+    type: new mongoose.Schema({
+      accessToken: String,
+      refreshToken: String,
+      expiresAt: Date,
+      email: String,
+    }, { _id: false }),
+    select: false,
+  },
+  scheduledMeetings: {
+    type: [
+      new mongoose.Schema({
+        title: String,
+        startsAt: Date,
+        endsAt: Date,
+        roomId: String,
+        meetingUrl: String,
+        invitees: [String],
+        providers: [String],
+      }, { _id: true }),
+    ],
+    select: false,
+    default: [],
+  },
 }, {
   timestamps: true,
   toJSON: {
@@ -126,6 +159,9 @@ const userSchema = new mongoose.Schema({
       delete ret.resetTokenHash;
       delete ret.resetTokenExpiresAt;
       delete ret.resetTokenUsed;
+      delete ret.googleCalendar;
+      delete ret.outlookCalendar;
+      delete ret.scheduledMeetings;
       return ret;
     }
   }

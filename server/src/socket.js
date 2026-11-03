@@ -1,3 +1,5 @@
+import MeetingLink from './models/MeetingLink.js';
+
 // Room management
 const rooms = new Map(); // roomId -> Set<socketId>
 const participantMeta = new Map(); // socketId -> { name, email, userId }
@@ -350,11 +352,40 @@ export function setupSocket(io) {
     };
 
     // Join a room (first participant becomes host; others wait for approval)
-    socket.on('join-room', ({ roomId, userId, userName, userEmail, isPro }) => {
+    socket.on('join-room', async ({ roomId, userId, userName, userEmail, isPro, passcode }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
       if (!normalizedRoomId) {
         socket.emit('join-room-error', { message: 'Invalid room ID' });
         return;
+      }
+
+      userName = String(userName || '').trim().slice(0, 80);
+      if (!userName) {
+        socket.emit('join-room-error', { message: 'Please enter your name' });
+        return;
+      }
+
+      let meetingLink = null;
+      try {
+        meetingLink = await MeetingLink.findOne({ roomId: normalizedRoomId }).select('+passcode');
+      } catch (error) {
+        logErr('Meeting link lookup failed:', error);
+        socket.emit('join-room-error', { message: 'Could not join the meeting' });
+        return;
+      }
+
+      if (meetingLink?.expiresAt && meetingLink.expiresAt.getTime() <= Date.now()) {
+        socket.emit('join-room-error', { message: 'This meeting link has expired' });
+        return;
+      }
+
+      const isLinkOwner = meetingLink && userId && String(meetingLink.createdBy) === String(userId);
+      if (meetingLink?.passcodeEnabled && !isLinkOwner) {
+        const given = String(passcode || '').trim();
+        if (!given || given !== meetingLink.passcode) {
+          socket.emit('join-room-error', { message: 'Incorrect passcode' });
+          return;
+        }
       }
 
       log(`👤 User ${userId} (${socket.id}) requesting join for room "${normalizedRoomId}"`);
@@ -411,6 +442,23 @@ export function setupSocket(io) {
           normalizedRoomId,
           { userId, userName, userEmail },
           { isHost: true }
+        );
+        return;
+      }
+
+      if (meetingLink && meetingLink.waitingRoom === false) {
+        if (isRoomFull(normalizedRoomId)) {
+          socket.emit('join-room-error', {
+            message: 'Participant limit reached (max 3 for non-Pro meetings). Cannot admit more users.',
+          });
+          return;
+        }
+        admitParticipant(
+          io,
+          socket,
+          normalizedRoomId,
+          { userId, userName, userEmail },
+          { isHost: false }
         );
         return;
       }

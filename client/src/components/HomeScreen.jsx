@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import { calendarAPI, meetingAPI } from '@/services/api';
 
 function makeCode() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -13,15 +15,6 @@ function greeting() {
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
   return 'Good evening';
-}
-
-function BrandMark() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 34 34" fill="none" aria-hidden="true">
-      <circle cx="13" cy="17" r="9" stroke="#0F2A44" strokeWidth="3" />
-      <circle cx="21" cy="17" r="9" stroke="#1C6E6E" strokeWidth="3" />
-    </svg>
-  );
 }
 
 function Switch({ checked, onChange, label }) {
@@ -56,18 +49,46 @@ export function HomeScreen({
   const [roomCode, setRoomCode] = useState(() => makeCode());
   const [joinValue, setJoinValue] = useState('');
   const [waitingRoom, setWaitingRoom] = useState(true);
-  const [passcodeOn, setPasscodeOn] = useState(true);
-  const [expires, setExpires] = useState('in 24 hours');
+  const [passcodeOn, setPasscodeOn] = useState(false);
+  const [passcode, setPasscode] = useState('');
+  const [expires, setExpires] = useState('never');
   const [copied, setCopied] = useState(false);
   const [calendar, setCalendar] = useState('Outlook');
   const [hostApproval, setHostApproval] = useState(true);
-  const [googleConnected, setGoogleConnected] = useState(false);
-  const [outlookConnected, setOutlookConnected] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [googleAccount, setGoogleAccount] = useState({ connected: false, email: null });
+  const [outlookAccount, setOutlookAccount] = useState({ connected: false, email: null });
+  const [upcoming, setUpcoming] = useState([]);
+  const [connecting, setConnecting] = useState(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({
+    title: '',
+    date: '',
+    start: '10:00',
+    duration: '30 min',
+    invites: '',
+  });
   const [addLinkToEvents, setAddLinkToEvents] = useState(true);
+  const googleConnected = Boolean(googleAccount?.connected);
+  const outlookConnected = Boolean(outlookAccount?.connected);
 
   const hello = useMemo(() => greeting(), []);
   const displayLink = `synchro.ai21.ca/r/${roomCode}`;
   const shareUrl = `${window.location.origin}/call?roomid=${roomCode}`;
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      meetingAPI.save(roomCode, {
+        waitingRoom,
+        passcodeEnabled: passcodeOn,
+        passcode: passcodeOn ? passcode : '',
+        expires,
+      }).catch(() => {
+        toast.error('Could not save meeting settings');
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [roomCode, waitingRoom, passcodeOn, passcode, expires]);
 
   const copyLink = async () => {
     try {
@@ -82,7 +103,8 @@ export function HomeScreen({
   };
 
   const openMail = () => {
-    const body = encodeURIComponent(`Join my Synchro meeting: ${shareUrl}`);
+    const pass = passcodeOn && passcode ? `\nPasscode: ${passcode}` : '';
+    const body = encodeURIComponent(`Join my Synchro meeting: ${shareUrl}${pass}`);
     window.location.href = `mailto:?subject=${encodeURIComponent('Synchro meeting')}&body=${body}`;
   };
 
@@ -94,6 +116,115 @@ export function HomeScreen({
   const openGoogle = () => {
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Synchro meeting')}&details=${encodeURIComponent(shareUrl)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const applyCalendarStatus = (data) => {
+    setGoogleAccount(data.google || { connected: false, email: null });
+    setOutlookAccount(data.outlook || { connected: false, email: null });
+    setUpcoming(data.upcoming || []);
+  };
+
+  useEffect(() => {
+    let ignore = false;
+    calendarAPI.status()
+      .then(({ data }) => {
+        if (!ignore) applyCalendarStatus(data);
+      })
+      .catch(() => {});
+
+    const provider = searchParams.get('calendar');
+    const connected = searchParams.get('connected');
+    if (provider && connected != null) {
+      const name = provider === 'google' ? 'Google Calendar' : 'Microsoft Outlook';
+      if (connected === '1') toast.success(`${name} connected`);
+      else toast.error(searchParams.get('reason') || `Could not connect ${name}`);
+      const next = new URLSearchParams(searchParams);
+      next.delete('calendar');
+      next.delete('connected');
+      next.delete('reason');
+      setSearchParams(next, { replace: true });
+    }
+
+    return () => {
+      ignore = true;
+    };
+    // Read the OAuth return once, when this screen opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connectProvider = async (provider) => {
+    setConnecting(provider);
+    try {
+      const { data } = await calendarAPI.start(provider);
+      window.location.assign(data.url);
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not start the calendar connection');
+      setConnecting(null);
+    }
+  };
+
+  const disconnectProvider = async (provider) => {
+    setConnecting(provider);
+    try {
+      const { data } = await calendarAPI.disconnect(provider);
+      applyCalendarStatus(data);
+      toast.success(provider === 'google' ? 'Google Calendar disconnected' : 'Outlook disconnected');
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not disconnect');
+    } finally {
+      setConnecting(null);
+    }
+  };
+
+  const scheduleMeeting = async (event) => {
+    event.preventDefault();
+    const title = scheduleForm.title.trim();
+    if (!title) {
+      toast.error('Enter a meeting title');
+      return;
+    }
+    if (!scheduleForm.date || !scheduleForm.start) {
+      toast.error('Choose a date and start time');
+      return;
+    }
+    const minutes = scheduleForm.duration === '1 hour' ? 60 : scheduleForm.duration === '45 min' ? 45 : 30;
+    const startDate = new Date(`${scheduleForm.date}T${scheduleForm.start}`);
+    if (Number.isNaN(startDate.getTime())) {
+      toast.error('Enter a valid date and time');
+      return;
+    }
+    if (startDate.getTime() < Date.now() - 60_000) {
+      toast.error('Choose a start time in the future');
+      return;
+    }
+    const endDate = new Date(startDate.getTime() + minutes * 60_000);
+    const pad = (value) => String(value).padStart(2, '0');
+    const stamp = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+    const providers = calendar === 'Both' ? ['outlook', 'google'] : calendar === 'Google' ? ['google'] : ['outlook'];
+
+    setScheduling(true);
+    try {
+      const { data } = await calendarAPI.schedule({
+        title,
+        startLocal: stamp(startDate),
+        endLocal: stamp(endDate),
+        startsAt: startDate.toISOString(),
+        endsAt: endDate.toISOString(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        invites: scheduleForm.invites,
+        providers,
+        roomId: roomCode,
+        meetingUrl: shareUrl,
+        addLink: addLinkToEvents,
+      });
+      setUpcoming(data.upcoming || []);
+      toast.success(data.message || 'Meeting scheduled');
+      setScheduleForm((form) => ({ ...form, title: '', invites: '' }));
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Could not schedule the meeting');
+    } finally {
+      setScheduling(false);
+    }
   };
 
   const startMeeting = () => {
@@ -164,6 +295,10 @@ export function HomeScreen({
                     <button
                       type="button"
                       onClick={() => {
+                        setWaitingRoom(true);
+                        setPasscodeOn(false);
+                        setPasscode('');
+                        setExpires('never');
                         setRoomCode(makeCode());
                         toast.success('New link created');
                       }}
@@ -186,15 +321,25 @@ export function HomeScreen({
                       Waiting room
                     </span>
                     <span className="flex items-center gap-2.5">
-                      <Switch checked={passcodeOn} onChange={setPasscodeOn} label="Passcode" />
+                      <Switch
+                        checked={passcodeOn}
+                        onChange={(enabled) => {
+                          setPasscodeOn(enabled);
+                          if (enabled && !passcode) {
+                            setPasscode(String(Math.floor(100000 + Math.random() * 900000)));
+                          }
+                        }}
+                        label="Passcode"
+                      />
                       Passcode
+                      {passcodeOn && passcode && <span className="font-semibold tracking-wide">{passcode}</span>}
                     </span>
                     <span className="flex items-center gap-2.5">
                       <label htmlFor="exp">Expires</label>
                       <select id="exp" value={expires} onChange={(e) => setExpires(e.target.value)} className="border-0 bg-transparent py-1 font-semibold">
+                        <option>never</option>
                         <option>in 24 hours</option>
                         <option>in 7 days</option>
-                        <option>never</option>
                       </select>
                     </span>
                   </div>
@@ -236,26 +381,23 @@ export function HomeScreen({
                 </div>
                 <form
                   className="grid grid-cols-2 gap-4 lg:grid-cols-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    toast.message('Use the meeting link to invite people. Calendar sending is not connected yet.');
-                  }}
+                  onSubmit={scheduleMeeting}
                 >
                   <label className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
                     <span className="text-[13px] font-medium text-[#6B7A84]">Title</span>
-                    <input placeholder="Weekly project sync" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
+                    <input value={scheduleForm.title} onChange={(e) => setScheduleForm((form) => ({ ...form, title: e.target.value }))} placeholder="Weekly project sync" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
                   </label>
                   <label className="col-span-2 flex flex-col gap-1.5">
                     <span className="text-[13px] font-medium text-[#6B7A84]">Date</span>
-                    <input type="date" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
+                    <input type="date" value={scheduleForm.date} onChange={(e) => setScheduleForm((form) => ({ ...form, date: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
                   </label>
                   <label className="flex flex-col gap-1.5">
                     <span className="text-[13px] font-medium text-[#6B7A84]">Start</span>
-                    <input type="time" defaultValue="10:00" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
+                    <input type="time" value={scheduleForm.start} onChange={(e) => setScheduleForm((form) => ({ ...form, start: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
                   </label>
                   <label className="flex flex-col gap-1.5">
                     <span className="text-[13px] font-medium text-[#6B7A84]">Duration</span>
-                    <select className="h-[46px] rounded-[10px] border border-[#E6EBED] bg-white px-3.5 text-[15px]">
+                    <select value={scheduleForm.duration} onChange={(e) => setScheduleForm((form) => ({ ...form, duration: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] bg-white px-3.5 text-[15px]">
                       <option>30 min</option>
                       <option>45 min</option>
                       <option>1 hour</option>
@@ -263,7 +405,7 @@ export function HomeScreen({
                   </label>
                   <label className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
                     <span className="text-[13px] font-medium text-[#6B7A84]">Invite</span>
-                    <input placeholder="Add emails, separated by commas" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
+                    <input value={scheduleForm.invites} onChange={(e) => setScheduleForm((form) => ({ ...form, invites: e.target.value }))} placeholder="Add emails, separated by commas" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
                   </label>
                   <div className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
                     <span className="text-[13px] font-medium text-[#6B7A84]">Add to calendar</span>
@@ -287,8 +429,8 @@ export function HomeScreen({
                       <input type="checkbox" checked={hostApproval} onChange={(e) => setHostApproval(e.target.checked)} className="h-[18px] w-[18px] accent-[#1C6E6E]" />
                       Host approves who joins
                     </label>
-                    <button type="submit" className="inline-flex h-[46px] items-center justify-center rounded-[10px] bg-[#1C6E6E] px-5 text-[15px] font-semibold text-white hover:bg-[#155858]">
-                      Schedule & send invites
+                    <button type="submit" disabled={scheduling} className="inline-flex h-[46px] items-center justify-center rounded-[10px] bg-[#1C6E6E] px-5 text-[15px] font-semibold text-white hover:bg-[#155858] disabled:opacity-60">
+                      {scheduling ? 'Scheduling…' : 'Schedule & send invites'}
                     </button>
                   </div>
                 </form>
@@ -298,9 +440,12 @@ export function HomeScreen({
               <section className="lg:hidden">
                 <CalendarPanel
                   googleConnected={googleConnected}
-                  onToggleGoogle={() => setGoogleConnected((value) => !value)}
+                  googleEmail={googleAccount?.email}
                   outlookConnected={outlookConnected}
-                  onToggleOutlook={() => setOutlookConnected((value) => !value)}
+                  outlookEmail={outlookAccount?.email}
+                  connecting={connecting}
+                  onToggleGoogle={() => (googleConnected ? disconnectProvider('google') : connectProvider('google'))}
+                  onToggleOutlook={() => (outlookConnected ? disconnectProvider('outlook') : connectProvider('outlook'))}
                   addLinkToEvents={addLinkToEvents}
                   onToggleAddLink={setAddLinkToEvents}
                 />
@@ -314,22 +459,52 @@ export function HomeScreen({
                 <div className="mb-[18px] flex items-center justify-between">
                   <h2 className="m-0 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#6B7A84]">Up next</h2>
                 </div>
-                <div className="rounded-xl bg-[#EAF3F2] p-5">
-                  <p className="text-sm font-medium text-[#2B3A45]">No meetings scheduled yet.</p>
-                  <p className="mt-1 text-sm text-[#6B7A84]">Start a meeting or share your quick link.</p>
-                  <button type="button" onClick={startMeeting} className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[10px] bg-[#1C6E6E] text-[15px] font-semibold text-white hover:bg-[#155858]">
-                    Start meeting
-                  </button>
-                </div>
+                {upcoming.length === 0 ? (
+                  <div className="rounded-xl bg-[#EAF3F2] p-5">
+                    <p className="text-sm font-medium text-[#2B3A45]">No meetings scheduled yet.</p>
+                    <p className="mt-1 text-sm text-[#6B7A84]">Schedule a meeting to send calendar invites.</p>
+                    <button type="button" onClick={startMeeting} className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[10px] bg-[#1C6E6E] text-[15px] font-semibold text-white hover:bg-[#155858]">
+                      Start meeting
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {upcoming.map((meeting) => (
+                      <div key={meeting.id} className="rounded-xl border border-[#E6EBED] p-4">
+                        <p className="font-semibold">{meeting.title}</p>
+                        <p className="mt-1 text-sm text-[#6B7A84]">
+                          {new Date(meeting.startsAt).toLocaleString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                        {meeting.providers?.length > 0 && (
+                          <p className="mt-1 text-xs font-medium text-[#1C6E6E]">
+                            {meeting.providers.map((provider) => (provider === 'google' ? 'Google' : 'Outlook')).join(' · ')}
+                          </p>
+                        )}
+                        <button type="button" onClick={() => onStartMeeting(meeting.roomId)} className="mt-3 inline-flex h-[40px] items-center rounded-[10px] bg-[#1C6E6E] px-4 text-sm font-semibold text-white hover:bg-[#155858]">
+                          Start
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </section>
             )}
 
             <section className="hidden lg:block">
               <CalendarPanel
                 googleConnected={googleConnected}
-                onToggleGoogle={() => setGoogleConnected((value) => !value)}
+                googleEmail={googleAccount?.email}
                 outlookConnected={outlookConnected}
-                onToggleOutlook={() => setOutlookConnected((value) => !value)}
+                outlookEmail={outlookAccount?.email}
+                connecting={connecting}
+                onToggleGoogle={() => (googleConnected ? disconnectProvider('google') : connectProvider('google'))}
+                onToggleOutlook={() => (outlookConnected ? disconnectProvider('outlook') : connectProvider('outlook'))}
                 addLinkToEvents={addLinkToEvents}
                 onToggleAddLink={setAddLinkToEvents}
               />
@@ -360,7 +535,22 @@ export function HomeScreen({
   );
 }
 
-function CalendarPanel({ googleConnected, onToggleGoogle, outlookConnected, onToggleOutlook, addLinkToEvents, onToggleAddLink }) {
+function connectionLabel(connected, email) {
+  if (!connected) return 'Not connected';
+  return email ? `Connected as ${email}` : 'Connected';
+}
+
+function CalendarPanel({
+  googleConnected,
+  googleEmail,
+  onToggleGoogle,
+  outlookConnected,
+  outlookEmail,
+  onToggleOutlook,
+  connecting,
+  addLinkToEvents,
+  onToggleAddLink,
+}) {
   return (
     <>
       <div className="mb-[18px]">
@@ -369,31 +559,33 @@ function CalendarPanel({ googleConnected, onToggleGoogle, outlookConnected, onTo
       <div className="flex items-center gap-3 border-b border-[#E6EBED] py-3.5">
         <div className="min-w-0 flex-1">
           <b className="block text-[15px] font-semibold">Microsoft Outlook</b>
-          <span className={`text-[13px] ${outlookConnected ? 'text-[#1E6B3A]' : 'text-[#6B7A84]'}`}>
-            {outlookConnected ? 'Marked as connected on this device' : 'Not connected'}
+          <span className={`block truncate text-[13px] ${outlookConnected ? 'text-[#1E6B3A]' : 'text-[#6B7A84]'}`}>
+            {connectionLabel(outlookConnected, outlookEmail)}
           </span>
         </div>
         <button
           type="button"
           onClick={onToggleOutlook}
-          className={outlookConnected ? 'text-[15px] font-semibold text-[#1C6E6E]' : 'inline-flex h-[46px] items-center rounded-[10px] border border-[#E6EBED] px-4 text-[15px] font-semibold'}
+          disabled={connecting === 'outlook'}
+          className={outlookConnected ? 'text-[15px] font-semibold text-[#1C6E6E] disabled:opacity-60' : 'inline-flex h-[46px] items-center rounded-[10px] border border-[#E6EBED] px-4 text-[15px] font-semibold disabled:opacity-60'}
         >
-          {outlookConnected ? 'Disconnect' : 'Connect'}
+          {connecting === 'outlook' ? 'Please wait…' : outlookConnected ? 'Disconnect' : 'Connect'}
         </button>
       </div>
       <div className="flex items-center gap-3 border-b border-[#E6EBED] py-3.5">
         <div className="min-w-0 flex-1">
           <b className="block text-[15px] font-semibold">Google Calendar</b>
-          <span className={`text-[13px] ${googleConnected ? 'text-[#1E6B3A]' : 'text-[#6B7A84]'}`}>
-            {googleConnected ? 'Marked as connected on this device' : 'Not connected'}
+          <span className={`block truncate text-[13px] ${googleConnected ? 'text-[#1E6B3A]' : 'text-[#6B7A84]'}`}>
+            {connectionLabel(googleConnected, googleEmail)}
           </span>
         </div>
         <button
           type="button"
           onClick={onToggleGoogle}
-          className={googleConnected ? 'text-[15px] font-semibold text-[#1C6E6E]' : 'inline-flex h-[46px] items-center rounded-[10px] border border-[#E6EBED] px-4 text-[15px] font-semibold'}
+          disabled={connecting === 'google'}
+          className={googleConnected ? 'text-[15px] font-semibold text-[#1C6E6E] disabled:opacity-60' : 'inline-flex h-[46px] items-center rounded-[10px] border border-[#E6EBED] px-4 text-[15px] font-semibold disabled:opacity-60'}
         >
-          {googleConnected ? 'Disconnect' : 'Connect'}
+          {connecting === 'google' ? 'Please wait…' : googleConnected ? 'Disconnect' : 'Connect'}
         </button>
       </div>
       <label className="mt-3 flex items-center gap-2.5 text-sm text-[#2B3A45]">
@@ -403,5 +595,3 @@ function CalendarPanel({ googleConnected, onToggleGoogle, outlookConnected, onTo
     </>
   );
 }
-
-export { BrandMark };

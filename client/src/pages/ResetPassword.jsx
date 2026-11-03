@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { LuEye, LuEyeOff } from 'react-icons/lu';
+import { SynchroLogo } from '@/components/SynchroLogo';
 
 const resetPasswordSchema = z
   .object({
@@ -103,7 +104,7 @@ export function ResetPassword() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4 pb-4 border-b">
-            <img src="/logo.png" alt="Synchro Logo" className="w-auto h-16 object-contain" />
+            <SynchroLogo className="text-[30px]" />
           </div>
           <CardTitle className="text-3xl">Reset Password</CardTitle>
           <CardDescription>Choose a new password for your account</CardDescription>

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { LuEye, LuEyeOff } from 'react-icons/lu';
+import { SynchroLogo } from '@/components/SynchroLogo';
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -100,7 +101,7 @@ export function Register() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4 pb-4 border-b">
-            <img src="/logo.png" alt="Synchro Logo" className="w-auto h-16 object-contain" />
+            <SynchroLogo className="text-[30px]" />
           </div>
           <CardTitle className="text-3xl">Create Account</CardTitle>
           <CardDescription>Sign up to get started</CardDescription>

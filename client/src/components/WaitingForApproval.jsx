@@ -6,11 +6,12 @@ export function WaitingForApproval({
   roomId,
   userName,
   onCancel,
+  guest = false,
   message = 'Waiting for the host to let you in',
 }) {
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Header />
+      <Header guest={guest} displayName={userName} />
       <div className="flex-1 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">

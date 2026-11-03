@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { useSocket } from '@/hooks/useSocket';
+import { meetingAPI } from '@/services/api';
 import { useWebRTC } from '@/hooks/useWebRTC';
 import { useAuth } from '@/context/AuthContext';
 import { Header } from '@/components/Header';
@@ -9,6 +10,7 @@ import { Controls } from './Controls';
 import { WaitingForApproval } from '@/components/WaitingForApproval';
 import { JoinRequestModal } from '@/components/JoinRequestModal';
 import { HomeScreen } from '@/components/HomeScreen';
+import { GuestJoin } from '@/components/GuestJoin';
 import { GUIDE_STORAGE_KEY, UserGuidePanel } from '@/components/UserGuidePanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +19,53 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { LuCopy } from 'react-icons/lu';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+function PasscodePrompt({ onSubmit, onCancel }) {
+  const [value, setValue] = useState('');
+  const trimmed = value.trim();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <Card className="w-full max-w-md shadow-xl">
+        <CardHeader>
+          <CardTitle>Meeting passcode</CardTitle>
+          <CardDescription>Enter the passcode from the host to join this meeting.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!trimmed) return;
+              onSubmit(trimmed);
+            }}
+          >
+            <div className="space-y-2">
+              <Label htmlFor="meeting-passcode">Passcode</Label>
+              <Input
+                id="meeting-passcode"
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder="Enter the meeting passcode"
+                maxLength={10}
+                autoFocus
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1" disabled={!trimmed}>
+                Join
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export function VideoCall() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -38,12 +87,26 @@ export function VideoCall() {
     return window.localStorage.getItem(GUIDE_STORAGE_KEY) !== 'true';
   });
   const [error, setError] = useState(null);
+  const [guestReady, setGuestReady] = useState(false);
+  const [roomAccess, setRoomAccess] = useState(null);
+  const [showPasscodeDialog, setShowPasscodeDialog] = useState(false);
+  const [guestJoinAttempt, setGuestJoinAttempt] = useState(0);
+  const [joinedAsName, setJoinedAsName] = useState('');
   const currentRoomIdRef = useRef(null);
+  const guestNameRef = useRef('');
+  const passcodeRef = useRef('');
+  const joinIdentityRef = useRef({ userId: localUserId, userName: 'Guest', userEmail: null, isPro: false });
   const isWaitingRef = useRef(false);
   const wasScreenSharingRef = useRef(false);
   const allowUnloadRef = useRef(false);
 
-  const { user } = useAuth();
+  const { user, isAuthenticated, loading: authLoading } = useAuth();
+  joinIdentityRef.current = {
+    userId: user?._id || user?.id || localUserId,
+    userName: (user?.name || guestNameRef.current || 'Guest').trim() || 'Guest',
+    userEmail: user?.email || null,
+    isPro: !!user?.isPro,
+  };
   const { socket, isConnected, error: socketError } = useSocket();
   const {
     localStream,
@@ -74,7 +137,7 @@ export function VideoCall() {
   };
 
   // Join room
-  const handleJoinRoom = async (roomIdToJoin) => {
+  const handleJoinRoom = async (roomIdToJoin, passcode) => {
     const explicitId = typeof roomIdToJoin === 'string' ? roomIdToJoin : '';
     const normalizedRoomId = normalizeRoomId(explicitId || roomId);
     
@@ -90,10 +153,32 @@ export function VideoCall() {
 
     try {
       setError(null);
-      
+      if (typeof passcode === 'string') passcodeRef.current = passcode.trim();
+
+      let access = roomAccess;
+      try {
+        const { data } = await meetingAPI.access(normalizedRoomId);
+        access = data;
+        setRoomAccess(data);
+      } catch {
+        access = access || { expired: false, passcodeRequired: false, waitingRoom: true };
+      }
+
+      if (access?.expired) {
+        setError('This meeting link has expired');
+        setGuestReady(false);
+        return;
+      }
+
+      if (access?.passcodeRequired && !passcodeRef.current) {
+        setShowPasscodeDialog(true);
+        setGuestReady(false);
+        return;
+      }
+
       // Update roomId state with normalized version
       setRoomId(normalizedRoomId);
-      
+
       // Initialize local stream
       await initializeLocalStream();
 
@@ -104,10 +189,8 @@ export function VideoCall() {
       setHasJoinedRoom(false);
       socket.emit('join-room', {
         roomId: normalizedRoomId,
-        userId: user?._id || user?.id || localUserId,
-        userName: user?.name || 'Guest',
-        userEmail: user?.email || null,
-        isPro: user?.isPro || false,
+        ...joinIdentityRef.current,
+        passcode: passcodeRef.current,
       });
     } catch (err) {
       console.error('Error joining room:', err);
@@ -153,17 +236,38 @@ export function VideoCall() {
     setError(null);
   };
 
+  const clearRoomLink = () => {
+    if (!searchParams.get('roomid')) return;
+    const newSearchParams = new URLSearchParams(searchParams);
+    newSearchParams.delete('roomid');
+    setSearchParams(newSearchParams, { replace: true });
+  };
+
+  const handleGuestSubmit = (name, passcode) => {
+    guestNameRef.current = name;
+    passcodeRef.current = String(passcode || '').trim();
+    joinIdentityRef.current = {
+      ...joinIdentityRef.current,
+      userName: name,
+    };
+    setJoinedAsName(name);
+    setError(null);
+    setGuestReady(true);
+    setGuestJoinAttempt((attempt) => attempt + 1);
+  };
+
   const handleCancelJoinRequest = () => {
     if (socket && currentRoomIdRef.current) {
       socket.emit('join-request:cancel', { roomId: currentRoomIdRef.current });
     }
     endCall();
     resetJoinState();
-    if (searchParams.get('roomid')) {
-      const newSearchParams = new URLSearchParams(searchParams);
-      newSearchParams.delete('roomid');
-      setSearchParams(newSearchParams, { replace: true });
+    if (!user) {
+      setGuestReady(false);
+      toast.message('Join request cancelled');
+      return;
     }
+    clearRoomLink();
     toast.message('Join request cancelled');
   };
 
@@ -186,13 +290,13 @@ export function VideoCall() {
     }
     endCall();
     resetJoinState();
-    
-    // Clear roomid query parameter from URL
-    if (searchParams.get('roomid')) {
-      const newSearchParams = new URLSearchParams(searchParams);
-      newSearchParams.delete('roomid');
-      setSearchParams(newSearchParams, { replace: true });
+
+    if (!user) {
+      setGuestReady(false);
+      return;
     }
+
+    clearRoomLink();
   };
 
   // Warn user before leaving during active meeting
@@ -247,9 +351,8 @@ export function VideoCall() {
       setPendingJoinRequests([]);
       socket.emit('join-room', {
         roomId: roomToRejoin,
-        userId: user?._id || user?.id || localUserId,
-        userName: user?.name || 'Guest',
-        userEmail: user?.email || null,
+        ...joinIdentityRef.current,
+        passcode: passcodeRef.current,
       });
       setError(null);
     };
@@ -543,6 +646,7 @@ export function VideoCall() {
       toast.error(message || 'Your join request was denied');
       endCall();
       resetJoinState();
+      if (!user) setGuestReady(false);
       setError(message || 'Your request to join was denied by the host.');
     });
 
@@ -551,6 +655,7 @@ export function VideoCall() {
       toast.error(message || 'Your join request was cancelled');
       endCall();
       resetJoinState();
+      if (!user) setGuestReady(false);
       setError(message || 'Your join request was cancelled.');
     });
 
@@ -594,6 +699,11 @@ export function VideoCall() {
       setIsWaitingForApproval(false);
       setHasJoinedRoom(false);
       currentRoomIdRef.current = null;
+      if (!user) setGuestReady(false);
+      if (/passcode/i.test(message || '')) {
+        passcodeRef.current = '';
+        if (user) setShowPasscodeDialog(true);
+      }
     });
 
     // Periodic check for missing connections (especially important for 5+ participants)
@@ -662,19 +772,41 @@ export function VideoCall() {
     wasScreenSharingRef.current = isScreenSharing;
   }, [socket, roomId, activeSharerId, isScreenSharing]);
 
-  // Check for roomid query parameter and auto-join
   useEffect(() => {
     const roomIdParam = searchParams.get('roomid');
-    if (roomIdParam && !hasJoinedRoom && !isWaitingForApproval && socket && isConnected) {
-      const normalizedRoomId = normalizeRoomId(roomIdParam);
-      setRoomId(normalizedRoomId);
-      // Small delay to ensure state is updated
-      setTimeout(() => {
-        handleJoinRoom(normalizedRoomId);
-      }, 500);
+    if (!roomIdParam) {
+      setRoomAccess(null);
+      return;
     }
+    let cancelled = false;
+    meetingAPI.access(normalizeRoomId(roomIdParam))
+      .then(({ data }) => {
+        if (!cancelled) setRoomAccess(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRoomAccess({ expired: false, passcodeRequired: false, waitingRoom: true });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
+  // Check for roomid query parameter and auto-join.
+  // Guests wait until they submit a display name.
+  useEffect(() => {
+    const roomIdParam = searchParams.get('roomid');
+    if (authLoading || !roomIdParam || hasJoinedRoom || isWaitingForApproval || !socket || !isConnected) return;
+    if (!isAuthenticated && !guestReady) return;
+    const normalizedRoomId = normalizeRoomId(roomIdParam);
+    setRoomId(normalizedRoomId);
+    const timer = setTimeout(() => {
+      handleJoinRoom(normalizedRoomId);
+    }, 500);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, socket, isConnected, hasJoinedRoom, isWaitingForApproval]);
+  }, [searchParams, socket, isConnected, hasJoinedRoom, isWaitingForApproval, authLoading, isAuthenticated, guestReady, guestJoinAttempt]);
 
   // Generate shareable link
   const getShareableLink = () => {
@@ -718,14 +850,59 @@ export function VideoCall() {
     return () => mediaQuery.removeEventListener('change', handleViewport);
   }, []);
 
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F6F8F8]">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-[#1C6E6E]" />
+      </div>
+    );
+  }
+
+  if (isAuthenticated && user?.status === 'pending') {
+    return <Navigate to="/pending-approval" replace />;
+  }
+  if (isAuthenticated && user?.status === 'rejected') {
+    return <Navigate to="/rejected" replace />;
+  }
+  if (isAuthenticated && user?.status === 'suspended') {
+    return <Navigate to="/suspended" replace />;
+  }
+
+  const linkRoomId = (searchParams.get('roomid') || '').trim();
+  const displayName = user?.name || joinedAsName;
+
   if (isWaitingForApproval) {
     return (
       <WaitingForApproval
-        roomId={roomId || currentRoomIdRef.current}
-        userName={user?.name}
+        roomId={roomId || currentRoomIdRef.current || linkRoomId}
+        userName={displayName}
+        guest={!user}
         onCancel={handleCancelJoinRequest}
       />
     );
+  }
+
+  if (!isAuthenticated && linkRoomId && !hasJoinedRoom) {
+    return (
+      <GuestJoin
+        roomId={linkRoomId}
+        initialName={joinedAsName}
+        error={error}
+        joining={guestReady}
+        passcodeRequired={Boolean(roomAccess?.passcodeRequired)}
+        waitingRoom={roomAccess?.waitingRoom !== false}
+        expired={Boolean(roomAccess?.expired)}
+        onSubmit={handleGuestSubmit}
+        onBack={() => {
+          setGuestReady(false);
+          setError(null);
+        }}
+      />
+    );
+  }
+
+  if (!isAuthenticated && !hasJoinedRoom) {
+    return <Navigate to="/" replace />;
   }
 
   if (!hasJoinedRoom) {
@@ -751,6 +928,15 @@ export function VideoCall() {
                 }}
               />
             </div>
+          )}
+          {showPasscodeDialog && (
+            <PasscodePrompt
+              onCancel={() => setShowPasscodeDialog(false)}
+              onSubmit={(code) => {
+                setShowPasscodeDialog(false);
+                handleJoinRoom(linkRoomId || roomId, code);
+              }}
+            />
           )}
           {user && !guideOpen && (
             <button
@@ -844,7 +1030,9 @@ export function VideoCall() {
         </div>
       )}
 
-      {showMainHeader && <Header hideNavigation={hasJoinedRoom} />}
+      {showMainHeader && (
+        <Header hideNavigation={hasJoinedRoom} guest={!user} displayName={displayName} />
+      )}
       <div className={cn(
             'w-full border-b rounded-lg bg-card p-3',
             isMobileView ? 'flex flex-col gap-3' : 'grid grid-cols-[1fr_auto] items-center gap-3'

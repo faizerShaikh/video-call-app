@@ -1,20 +1,16 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SynchroLogo } from '@/components/SynchroLogo';
 
 export function Landing() {
   return (
     <div className="min-h-screen bg-[#F6F8F8]">
       <div className="container mx-auto px-4 py-16">
         <div className="text-center mb-16">
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <img src="/logo.png" alt="Synchro Logo" className="w-16 h-16 object-contain" />
-            <div className="text-left">
-              <h1 className="text-5xl font-bold text-[#0F2A44]">
-                Synchro
-              </h1>
-              <p className="text-lg text-muted-foreground mt-1">Seamless Connections</p>
-            </div>
+          <div className="mb-6 flex flex-col items-center gap-2">
+            <SynchroLogo className="text-5xl" />
+            <p className="text-lg text-muted-foreground">Seamless Connections</p>
           </div>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             High-quality video calls powered by WebRTC. Connect with anyone, anywhere, anytime.

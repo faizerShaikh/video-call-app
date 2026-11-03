@@ -11,6 +11,8 @@ import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import adminRoutes from './routes/admin.js';
 import turnRoutes from './routes/turn.js';
+import calendarRoutes from './routes/calendar.js';
+import meetingLinkRoutes from './routes/meetingLinks.js';
 
 dotenv.config();
 
@@ -90,6 +92,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', turnRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/meeting-links', meetingLinkRoutes);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {

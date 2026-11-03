@@ -35,14 +35,7 @@ function App() {
           <Route path="/suspended" element={<Suspended />} />
 
           {/* Protected user routes */}
-          <Route
-            path="/call"
-            element={
-              <ProtectedRoute>
-                <VideoCall />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/call" element={<VideoCall />} />
           <Route
             path="/profile"
             element={

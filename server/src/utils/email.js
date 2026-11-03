@@ -58,7 +58,7 @@ const buildPasswordResetHtml = ({ displayName, otp }) => `
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background-color:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #d7e4e6;box-shadow:0 8px 24px rgba(15, 76, 73, 0.08);">
           <tr>
             <td align="center" style="padding:28px 32px 16px;background:linear-gradient(180deg,#f7fbfb 0%,#ffffff 100%);border-bottom:1px solid #e6f0f1;">
-              <img src="cid:synchro-logo" alt="Synchro" width="140" style="display:block;width:140px;max-width:60%;height:auto;margin:0 auto;" />
+              <img src="cid:synchro-logo" alt="Synchro" width="220" style="display:block;width:220px;max-width:80%;height:auto;margin:0 auto;" />
             </td>
           </tr>
           <tr>
