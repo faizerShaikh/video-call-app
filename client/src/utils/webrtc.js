@@ -41,14 +41,35 @@ function buildSelfHostedTurnIceServer(credentials) {
   };
 }
 
+function normalizeIceServerEntry(server) {
+  if (!server) return null;
+  const urls = [].concat(server.urls || server.url || []).filter(Boolean);
+  if (!urls.length) return null;
+  const entry = { urls };
+  if (server.username) entry.username = server.username;
+  if (server.credential) entry.credential = server.credential;
+  return entry;
+}
+
 function normalizeIceServersFromProvider(payload) {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
-  if (Array.isArray(payload?.iceServers)) {
-    return payload.iceServers;
-  }
-  return null;
+  const raw = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.iceServers)
+      ? payload.iceServers
+      : null;
+  if (!raw) return null;
+  return raw.map(normalizeIceServerEntry).filter(Boolean);
+}
+
+function sortIceServers(servers) {
+  // Prefer TURN/TURNS first so cross-laptop / Wi‑Fi isolation paths get relay candidates.
+  const score = (server) => {
+    const urls = [].concat(server.urls || []).map(String);
+    if (urls.some((u) => u.startsWith('turns:'))) return 0;
+    if (urls.some((u) => u.startsWith('turn:'))) return 1;
+    return 2;
+  };
+  return [...servers].sort((a, b) => score(a) - score(b));
 }
 
 export async function getIceServers() {
@@ -62,15 +83,18 @@ export async function getIceServers() {
       const providerIceServers = normalizeIceServersFromProvider(payload);
 
       if (providerIceServers && providerIceServers.length > 0) {
-        cachedIceServers = providerIceServers;
+        // Keep Google STUN as extra fallback alongside Metered.
+        cachedIceServers = sortIceServers([...providerIceServers, ...STUN_SERVERS]);
       } else {
         const turnServer = buildSelfHostedTurnIceServer(payload);
-        cachedIceServers = turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS];
+        cachedIceServers = turnServer
+          ? sortIceServers([turnServer, ...STUN_SERVERS])
+          : [...STUN_SERVERS];
       }
       const hasTurn = cachedIceServers.some((server) =>
         [].concat(server.urls || []).some((url) => String(url).startsWith('turn'))
       );
-      console.log(`🌐 ICE servers ready (provider=${payload?.provider || 'unknown'}, turn=${hasTurn ? 'yes' : 'no'})`);
+      console.log(`🌐 ICE servers ready (provider=${payload?.provider || 'unknown'}, turn=${hasTurn ? 'yes' : 'no'}, count=${cachedIceServers.length})`);
     } catch (error) {
       console.error('Failed to fetch TURN credentials, using STUN fallback:', error);
       cachedIceServers = [...STUN_SERVERS];
@@ -84,14 +108,37 @@ export async function getIceServers() {
 
 export async function getRTCConfig() {
   const iceServers = await getIceServers();
-  // Never force relay-only. Relay-only + failed TURN allocate leaves ICE stuck at "new"
-  // with black video even after SDP/answer succeeds.
   return {
     iceServers,
     iceCandidatePoolSize: 16,
     bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
     iceTransportPolicy: 'all',
   };
+}
+
+/**
+ * Wait until ICE gathering finishes (or timeout) so offer/answer SDP includes
+ * host + srflx + relay candidates. Critical for different laptops / Wi‑Fi isolation
+ * when trickle candidates are delayed or dropped.
+ */
+function waitForIceGatheringComplete(peerConnection, timeoutMs = 4000) {
+  if (peerConnection.iceGatheringState === 'complete') {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      peerConnection.removeEventListener('icegatheringstatechange', onChange);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onChange = () => {
+      if (peerConnection.iceGatheringState === 'complete') finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    peerConnection.addEventListener('icegatheringstatechange', onChange);
+  });
 }
 
 /**
@@ -217,9 +264,16 @@ export function addStreamToPeerConnection(peerConnection, stream) {
  */
 export async function createOffer(peerConnection) {
   try {
-    const offer = await peerConnection.createOffer();
+    const offer = await peerConnection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
     await peerConnection.setLocalDescription(offer);
-    return offer;
+    await waitForIceGatheringComplete(peerConnection);
+    const finalOffer = peerConnection.localDescription;
+    const candidateCount = (finalOffer?.sdp || '').split('\na=candidate:').length - 1;
+    console.log(`📤 Offer ready with ${candidateCount} inline ICE candidate(s)`);
+    return finalOffer;
   } catch (error) {
     console.error('Error creating offer:', error);
     throw error;
@@ -234,7 +288,11 @@ export async function createAnswer(peerConnection, offer) {
     await peerConnection.setRemoteDescription(offer);
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
-    return answer;
+    await waitForIceGatheringComplete(peerConnection);
+    const finalAnswer = peerConnection.localDescription;
+    const candidateCount = (finalAnswer?.sdp || '').split('\na=candidate:').length - 1;
+    console.log(`📤 Answer ready with ${candidateCount} inline ICE candidate(s)`);
+    return finalAnswer;
   } catch (error) {
     console.error('Error creating answer:', error);
     throw error;
