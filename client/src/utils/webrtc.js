@@ -186,6 +186,74 @@ export async function getRTCConfig() {
 }
 
 /**
+ * Prove whether Metered/TURN can actually allocate a relay from this browser/network.
+ * Credentials can return 200 while ALLOCATE still fails → zero relay candidates.
+ */
+export async function probeTurnRelay(timeoutMs = 8000) {
+  const iceServers = await getIceServers({ forceRefresh: true });
+  const summary = summarizeIceServers(iceServers);
+
+  if (summary.turn === 0) {
+    console.warn('🧪 TURN probe skipped — no TURN servers in ICE config', summary);
+    return { ok: false, reason: 'no-turn-servers', summary };
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let gotRelay = false;
+    const pc = new RTCPeerConnection({
+      iceServers,
+      iceTransportPolicy: 'relay',
+      iceCandidatePoolSize: 0,
+    });
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        pc.close();
+      } catch {
+        /* ignore */
+      }
+      if (result.ok) {
+        console.log('🧪 TURN probe OK — relay candidate allocated', summary);
+      } else {
+        console.error(
+          '🧪 TURN probe FAILED — browser could not allocate a relay. Cross-network video will fail.',
+          result
+        );
+      }
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      finish({ ok: gotRelay, reason: gotRelay ? 'ok' : 'timeout', summary });
+    }, timeoutMs);
+
+    pc.onicecandidate = (event) => {
+      if (!event.candidate) {
+        finish({ ok: gotRelay, reason: gotRelay ? 'ok' : 'gathering-complete-no-relay', summary });
+        return;
+      }
+      const type =
+        event.candidate.type ||
+        (event.candidate.candidate && event.candidate.candidate.split(' ')[7]) ||
+        '';
+      if (type === 'relay') {
+        gotRelay = true;
+        finish({ ok: true, reason: 'relay', summary });
+      }
+    };
+
+    pc.createDataChannel('turn-probe');
+    pc.createOffer()
+      .then((offer) => pc.setLocalDescription(offer))
+      .catch((error) => finish({ ok: false, reason: error.message, summary }));
+  });
+}
+
+/**
  * Check if getUserMedia is available
  */
 export function isGetUserMediaSupported() {
@@ -306,9 +374,9 @@ export function addStreamToPeerConnection(peerConnection, stream) {
 /**
  * Create and set local description (offer)
  */
-export async function createOffer(peerConnection) {
+export async function createOffer(peerConnection, options = {}) {
   try {
-    const offer = await peerConnection.createOffer();
+    const offer = await peerConnection.createOffer(options);
     await peerConnection.setLocalDescription(offer);
     return offer;
   } catch (error) {

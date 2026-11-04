@@ -8,6 +8,7 @@ import {
   addIceCandidate,
   stopStream,
   getUserMedia,
+  probeTurnRelay,
 } from '@/utils/webrtc';
 
 // Import these functions directly for use in callbacks
@@ -43,6 +44,7 @@ export function useWebRTC(socket, roomId, localUserId) {
   const screenAudioTrackRef = useRef(null);
   const socketRef = useRef(socket);
   const roomIdRef = useRef(roomId);
+  const turnProbePromiseRef = useRef(null);
   socketRef.current = socket;
   roomIdRef.current = roomId;
 
@@ -216,36 +218,19 @@ export function useWebRTC(socket, roomId, localUserId) {
       setRemoteStreams(prev => {
         const newMap = new Map(prev);
         const existingStream = newMap.get(participantId);
-        
-        if (existingStream) {
-          // Get all existing tracks
-          const existingTracks = existingStream.getTracks();
-          
-          // Check if this track already exists
-          const trackExists = existingTracks.some(t => t.id === track.id);
-          
-          if (!trackExists) {
-            console.log(`➕ Adding ${track.kind} track to remote stream for ${participantId}`);
-            // Create a new stream with all existing tracks plus the new track
-            const allTracks = [...existingTracks, track];
-            const updatedStream = new MediaStream(allTracks);
-            console.log(`🔄 Updated stream for ${participantId} with ${allTracks.length} track(s):`, 
-              allTracks.map(t => `${t.kind}(${t.id.substring(0, 8)})`).join(', '));
-            newMap.set(participantId, updatedStream);
-          } else {
-            // Track exists, but create a new stream object anyway to ensure React detects the change
-            // This helps when tracks are updated (e.g., enabled/disabled)
-            const allTracks = existingStream.getTracks();
-            const updatedStream = new MediaStream(allTracks);
-            console.log(`🔄 Refreshed stream for ${participantId} (track already exists, refreshing stream object)`);
-            newMap.set(participantId, updatedStream);
-          }
-        } else {
-          // Create new stream entry from the track
-          const newStream = new MediaStream([track]);
-          console.log(`🆕 Created new stream for ${participantId} with ${track.kind} track`);
-          newMap.set(participantId, newStream);
-        }
+        const existingTracks = (existingStream?.getTracks() || []).filter(
+          (t) => t.readyState === 'live' && t.id !== track.id
+        );
+
+        // One live track per kind — avoids 4-track piles after reconnect/renegotiation
+        const replaced = existingTracks.filter((t) => t.kind !== track.kind);
+        const allTracks = [...replaced, track];
+        const updatedStream = new MediaStream(allTracks);
+        console.log(
+          `🔄 Stream for ${participantId}:`,
+          allTracks.map((t) => `${t.kind}(${t.id.substring(0, 8)})`).join(', ')
+        );
+        newMap.set(participantId, updatedStream);
         return newMap;
       });
       
@@ -438,18 +423,30 @@ export function useWebRTC(socket, roomId, localUserId) {
           return; // Don't retry anymore
         }
         
-        setError(`Connection failed with ${participantId}. Retrying... (${attemptInfo.attempts}/3)`);
-        
-        // Try to reconnect (with exponential backoff)
-        if (socket && roomId) {
-          const retryDelay = Math.min(2000 * attemptInfo.attempts, 10000); // 2s, 4s, 6s, max 10s
+        setError(`Connection failed with ${participantId}. Retrying ICE... (${attemptInfo.attempts}/3)`);
+
+        // ICE restart in-place — do NOT close/recreate (that stacked duplicate tracks and glare)
+        if (socket && roomId && pc.signalingState !== 'closed') {
+          const retryDelay = Math.min(1500 * attemptInfo.attempts, 6000);
           setTimeout(() => {
-            console.log(`🔄 Attempting to reconnect with ${participantId} (attempt ${attemptInfo.attempts})...`);
-            pc.close();
-            peerConnectionsRef.current.delete(participantId);
-            startCallWithParticipant(participantId).catch(err => {
-              console.error(`❌ Failed to reconnect with ${participantId}:`, err);
-            });
+            if (!peerConnectionsRef.current.has(participantId)) return;
+            console.log(`🔄 ICE restart with ${participantId} (attempt ${attemptInfo.attempts})...`);
+            createOfferUtil(pc, { iceRestart: true })
+              .then((offer) => {
+                // createOfferUtil already setLocalDescription in our helper — check
+                return offer;
+              })
+              .then((offer) => {
+                socket.emit('offer', {
+                  offer,
+                  roomId: roomIdRef.current,
+                  targetId: participantId,
+                });
+                console.log(`📤 ICE restart offer sent to ${participantId}`);
+              })
+              .catch((err) => {
+                console.error(`❌ ICE restart failed for ${participantId}:`, err);
+              });
           }, retryDelay);
         }
       } else if (state === 'disconnected') {
@@ -663,6 +660,15 @@ export function useWebRTC(socket, roomId, localUserId) {
         await initializeLocalStream();
       }
 
+      // One TURN allocate probe per session — proves relay works on this network
+      if (!turnProbePromiseRef.current) {
+        turnProbePromiseRef.current = probeTurnRelay();
+      }
+      const turnProbe = await turnProbePromiseRef.current;
+      if (!turnProbe.ok) {
+        console.warn('⚠️ TURN relay probe failed before offer — remote peers may not connect', turnProbe);
+      }
+
       // Create peer connection for this participant
       const pc = await createPeerConnectionInstance(participantId);
 
@@ -795,6 +801,11 @@ export function useWebRTC(socket, roomId, localUserId) {
         if (!localStreamRef.current) {
           await initializeLocalStream();
         }
+
+        if (!turnProbePromiseRef.current) {
+          turnProbePromiseRef.current = probeTurnRelay();
+        }
+        await turnProbePromiseRef.current;
 
         // Create peer connection for this participant
         pc = await createPeerConnectionInstance(from);
