@@ -560,14 +560,21 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.log(`🧊 ICE gathering state for ${participantId}:`, pc.iceGatheringState);
       if (pc.iceGatheringState === 'complete') {
         console.log(`✅ ICE gathering complete for ${participantId}`);
-        // Log candidate types gathered
-        const stats = pc.getStats();
-        stats.then(result => {
-          result.forEach(report => {
-            if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
-              console.log(`   Candidate: ${report.candidateType} - ${report.ip}:${report.port} - ${report.protocol}`);
+        pc.getStats().then((result) => {
+          const counts = { host: 0, srflx: 0, relay: 0, prflx: 0, other: 0 };
+          result.forEach((report) => {
+            if (report.type === 'local-candidate') {
+              const t = report.candidateType || 'other';
+              counts[t] = (counts[t] || 0) + 1;
+              console.log(`   Local candidate: ${t} ${report.protocol} ${report.address || report.ip}:${report.port}`);
             }
           });
+          console.log(`🧊 Local candidate summary for ${participantId}:`, counts);
+          if (!counts.relay) {
+            console.warn(
+              `⚠️ No TURN relay candidates gathered for ${participantId}. Cross-network calls will likely fail even though TURN URLs were configured.`
+            );
+          }
         });
       }
     };
@@ -751,10 +758,35 @@ export function useWebRTC(socket, roomId, localUserId) {
               addStreamToPeerConnection(pc, localStreamRef.current);
             }
           }
-        } else if (pc.remoteDescription && pc.signalingState === 'stable') {
-          // Already negotiated — ignore duplicate offer unless this is a renegotiation
-          console.log(`⚠️ Already stable with ${from}, ignoring duplicate offer`);
-          return;
+        } else if (pc.signalingState === 'stable') {
+          const dead =
+            pc.connectionState === 'failed' ||
+            pc.connectionState === 'disconnected' ||
+            pc.connectionState === 'closed' ||
+            pc.iceConnectionState === 'failed' ||
+            pc.iceConnectionState === 'disconnected' ||
+            pc.iceConnectionState === 'closed';
+
+          if (dead) {
+            // Reconnect offers were being ignored here — that left ICE permanently failed.
+            console.log(`🔄 Dead PC with ${from} (${pc.connectionState}/${pc.iceConnectionState}) — recreating for renegotiation`);
+            try {
+              pc.close();
+            } catch {
+              /* ignore */
+            }
+            peerConnectionsRef.current.delete(from);
+            iceCandidateQueuesRef.current.set(from, []);
+            if (!localStreamRef.current) {
+              await initializeLocalStream();
+            }
+            pc = await createPeerConnectionInstance(from);
+            if (localStreamRef.current) {
+              addStreamToPeerConnection(pc, localStreamRef.current);
+            }
+          } else {
+            console.log(`🔄 Renegotiation offer from ${from} while stable — answering`);
+          }
         } else {
           console.log(`✅ Reusing existing peer connection with ${from} (state: ${pc.signalingState})`);
         }

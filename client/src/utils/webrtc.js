@@ -79,6 +79,34 @@ function normalizeIceServersFromProvider(payload) {
   return null;
 }
 
+/** Ensure RTCIceServer.urls is always an array; put TLS/TCP TURN first for strict NATs. */
+function normalizeAndPrioritizeIceServers(servers) {
+  const normalized = (servers || [])
+    .map((server) => {
+      if (!server?.urls) return null;
+      const urls = (Array.isArray(server.urls) ? server.urls : [server.urls]).filter(Boolean);
+      if (!urls.length) return null;
+      return {
+        ...server,
+        urls,
+        username: server.username,
+        credential: server.credential ?? server.password,
+      };
+    })
+    .filter(Boolean);
+
+  const score = (url) => {
+    const u = String(url).toLowerCase();
+    if (u.startsWith('turns:') && u.includes('transport=tcp')) return 0;
+    if (u.startsWith('turns:')) return 1;
+    if (u.startsWith('turn:') && u.includes('transport=tcp')) return 2;
+    if (u.startsWith('turn:')) return 3;
+    return 4; // stun
+  };
+
+  return [...normalized].sort((a, b) => score(a.urls[0]) - score(b.urls[0]));
+}
+
 function summarizeIceServers(servers) {
   let stun = 0;
   let turn = 0;
@@ -96,8 +124,16 @@ function summarizeIceServers(servers) {
   return { stun, turn, urls };
 }
 
-export async function getIceServers() {
-  if (iceServerPromise) {
+let iceServersFetchedAt = 0;
+const ICE_SERVERS_TTL_MS = 5 * 60 * 1000;
+
+export async function getIceServers({ forceRefresh = false } = {}) {
+  const cacheValid =
+    iceServerPromise &&
+    !forceRefresh &&
+    Date.now() - iceServersFetchedAt < ICE_SERVERS_TTL_MS;
+
+  if (cacheValid) {
     return iceServerPromise;
   }
 
@@ -107,11 +143,13 @@ export async function getIceServers() {
       const providerIceServers = normalizeIceServersFromProvider(payload);
 
       if (providerIceServers && providerIceServers.length > 0) {
-        cachedIceServers = providerIceServers;
+        cachedIceServers = normalizeAndPrioritizeIceServers(providerIceServers);
         console.log(`🧊 ICE servers from provider (${payload?.provider || 'unknown'}):`, summarizeIceServers(cachedIceServers));
       } else {
         const turnServer = buildSelfHostedTurnIceServer(payload);
-        cachedIceServers = turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS];
+        cachedIceServers = normalizeAndPrioritizeIceServers(
+          turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS]
+        );
         if (turnServer) {
           console.log('🧊 ICE servers from self-hosted TURN + STUN:', summarizeIceServers(cachedIceServers));
         } else {
@@ -125,6 +163,7 @@ export async function getIceServers() {
       cachedIceServers = [...STUN_SERVERS];
     }
 
+    iceServersFetchedAt = Date.now();
     const summary = summarizeIceServers(cachedIceServers);
     if (summary.turn === 0) {
       console.warn('⚠️ ICE config has 0 TURN/relay servers — only STUN. Different networks usually cannot connect.');
@@ -137,11 +176,12 @@ export async function getIceServers() {
 }
 
 export async function getRTCConfig() {
-  const iceServers = await getIceServers();
+  const iceServers = await getIceServers({ forceRefresh: false });
   return {
     iceServers,
-    iceCandidatePoolSize: 16,
+    iceCandidatePoolSize: 0,
     bundlePolicy: 'max-bundle',
+    iceTransportPolicy: 'all',
   };
 }
 
