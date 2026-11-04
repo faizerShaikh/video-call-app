@@ -132,6 +132,18 @@ export function VideoCall() {
     removeParticipant,
   } = useWebRTC(socket, roomId, localUserId);
 
+  // Keep latest WebRTC handlers in refs so socket listeners stay mounted.
+  // Re-binding on every hasJoinedRoom/handleOffer change drops mid-flight ICE candidates
+  // on production latency and leaves iceConnectionState stuck at "new".
+  const handleOfferRef = useRef(handleOffer);
+  const handleAnswerRef = useRef(handleAnswer);
+  const handleIceCandidateRef = useRef(handleIceCandidate);
+  const updateRemoteMediaStateRef = useRef(updateRemoteMediaState);
+  handleOfferRef.current = handleOffer;
+  handleAnswerRef.current = handleAnswer;
+  handleIceCandidateRef.current = handleIceCandidate;
+  updateRemoteMediaStateRef.current = updateRemoteMediaState;
+
   // Normalize room ID (trim and lowercase for consistency)
   const normalizeRoomId = (id) => {
     return id.trim().toLowerCase();
@@ -338,7 +350,46 @@ export function VideoCall() {
     window.location.reload();
   };
 
-  // Socket event handlers
+  // Stable WebRTC signaling listeners — must NOT rebind when room state changes.
+  useEffect(() => {
+    if (!socket) return;
+
+    const onOffer = ({ offer, from }) => {
+      console.log('📥 Received offer from:', from);
+      handleOfferRef.current(offer, from);
+    };
+    const onAnswer = ({ answer, from }) => {
+      console.log('📥 Received answer from:', from);
+      handleAnswerRef.current(answer, from);
+    };
+    const onIceCandidate = ({ candidate, from }) => {
+      console.log('🧊 Received ICE candidate from:', from);
+      handleIceCandidateRef.current(candidate, from);
+    };
+    const onMediaState = ({ videoEnabled, audioEnabled, from }) => {
+      if (videoEnabled !== undefined || audioEnabled !== undefined) {
+        updateRemoteMediaStateRef.current(
+          from,
+          videoEnabled !== undefined ? videoEnabled : true,
+          audioEnabled !== undefined ? audioEnabled : true
+        );
+      }
+    };
+
+    socket.on('offer', onOffer);
+    socket.on('answer', onAnswer);
+    socket.on('ice-candidate', onIceCandidate);
+    socket.on('media-state', onMediaState);
+
+    return () => {
+      socket.off('offer', onOffer);
+      socket.off('answer', onAnswer);
+      socket.off('ice-candidate', onIceCandidate);
+      socket.off('media-state', onMediaState);
+    };
+  }, [socket]);
+
+  // Socket event handlers (room / presence — not ICE-critical)
   useEffect(() => {
     if (!socket) return;
 
@@ -369,49 +420,6 @@ export function VideoCall() {
     // Track if we've received an offer to avoid creating duplicate offers
     const offerReceivedRef = { current: false };
     const offerTimeoutRef = { current: null };
-
-    // Handle incoming offer
-    socket.on('offer', ({ offer, from }) => {
-      console.log('📥 Received offer from:', from);
-      offerReceivedRef.current = true;
-      // Cancel any pending offer creation
-      if (offerTimeoutRef.current) {
-        clearTimeout(offerTimeoutRef.current);
-        offerTimeoutRef.current = null;
-        console.log('❌ Cancelled pending offer creation - received offer instead');
-      }
-      handleOffer(offer, from);
-    });
-
-    // Handle incoming answer
-    socket.on('answer', ({ answer, from }) => {
-      console.log('📥 Received answer from:', from);
-      console.log('📥 Answer details:', {
-        type: answer?.type,
-        sdp: answer?.sdp?.substring(0, 100) + '...',
-      });
-      handleAnswer(answer, from);
-    });
-
-    // Handle ICE candidate
-    socket.on('ice-candidate', ({ candidate, from }) => {
-      console.log('🧊 Received ICE candidate from:', from);
-      handleIceCandidate(candidate, from);
-    });
-
-    // Handle media state changes (remote video/audio on/off)
-    socket.on('media-state', ({ videoEnabled, audioEnabled, from }) => {
-      console.log('📹 Media state update received from:', from);
-      console.log('📹 Video enabled:', videoEnabled, 'Audio enabled:', audioEnabled);
-      
-      if (videoEnabled !== undefined || audioEnabled !== undefined) {
-        updateRemoteMediaState(
-          from,
-          videoEnabled !== undefined ? videoEnabled : true,
-          audioEnabled !== undefined ? audioEnabled : true
-        );
-      }
-    });
 
     socket.on('screen-share:start-accepted', async ({ sharerSocketId }) => {
       if (sharerSocketId !== socket.id) return;
@@ -732,9 +740,6 @@ export function VideoCall() {
         clearTimeout(offerTimeoutRef.current);
         offerTimeoutRef.current = null;
       }
-      socket.off('offer');
-      socket.off('answer');
-      socket.off('ice-candidate');
       socket.off('user-joined');
       socket.off('user-left');
       socket.off('room-update');
@@ -749,14 +754,13 @@ export function VideoCall() {
       socket.off('join-request:resolved');
       socket.off('join-request:error');
       socket.off('host-changed');
-      socket.off('media-state');
       socket.off('screen-share:start-accepted');
       socket.off('screen-share:start-rejected');
       socket.off('screen-share:started');
       socket.off('screen-share:stopped');
       clearInterval(periodicCheckInterval);
     };
-  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, removeParticipant, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall, updateRemoteMediaState]);
+  }, [socket, hasJoinedRoom, participantCount, roomId, startCallWithParticipant, getPeerConnections, removeParticipant, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall]);
 
   // Display errors
   useEffect(() => {
