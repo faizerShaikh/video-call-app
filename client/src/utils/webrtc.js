@@ -118,26 +118,49 @@ export async function getRTCConfig() {
 }
 
 /**
- * Wait until ICE gathering finishes (or timeout) so offer/answer SDP includes
- * host + srflx + relay candidates. Critical for different laptops / Wi‑Fi isolation
- * when trickle candidates are delayed or dropped.
+ * Wait until ICE gathering finishes, or until we have a TURN relay candidate,
+ * or timeout. Relay often arrives after host/srflx — a short timeout caused
+ * cross-laptop calls to miss relay and stay stuck in ICE "checking".
  */
-function waitForIceGatheringComplete(peerConnection, timeoutMs = 4000) {
+function waitForIceGatheringComplete(peerConnection, timeoutMs = 10000) {
   if (peerConnection.iceGatheringState === 'complete') {
     return Promise.resolve();
   }
 
   return new Promise((resolve) => {
-    const finish = () => {
+    let settled = false;
+    const finish = (reason) => {
+      if (settled) return;
+      settled = true;
       peerConnection.removeEventListener('icegatheringstatechange', onChange);
+      peerConnection.removeEventListener('icecandidate', onCandidate);
       clearTimeout(timer);
+      const sdp = peerConnection.localDescription?.sdp || '';
+      const hasRelay = sdp.includes(' typ relay ');
+      console.log(`🧊 ICE gather wait done (${reason}), relay=${hasRelay ? 'yes' : 'no'}`);
+      if (!hasRelay) {
+        console.warn('⚠️ No TURN relay candidates gathered — other networks/laptops may fail to connect');
+      }
       resolve();
     };
+
     const onChange = () => {
-      if (peerConnection.iceGatheringState === 'complete') finish();
+      if (peerConnection.iceGatheringState === 'complete') finish('complete');
     };
-    const timer = setTimeout(finish, timeoutMs);
+
+    const onCandidate = (event) => {
+      const c = event.candidate;
+      if (!c) return;
+      const typ = c.type || (c.candidate && c.candidate.split(' ')[7]) || '';
+      if (typ === 'relay') {
+        // Give a short moment for sibling relay candidates, then continue.
+        setTimeout(() => finish('relay-ready'), 500);
+      }
+    };
+
+    const timer = setTimeout(() => finish('timeout'), timeoutMs);
     peerConnection.addEventListener('icegatheringstatechange', onChange);
+    peerConnection.addEventListener('icecandidate', onCandidate);
   });
 }
 
@@ -271,8 +294,10 @@ export async function createOffer(peerConnection) {
     await peerConnection.setLocalDescription(offer);
     await waitForIceGatheringComplete(peerConnection);
     const finalOffer = peerConnection.localDescription;
-    const candidateCount = (finalOffer?.sdp || '').split('\na=candidate:').length - 1;
-    console.log(`📤 Offer ready with ${candidateCount} inline ICE candidate(s)`);
+    const sdp = finalOffer?.sdp || '';
+    const candidateCount = sdp.split('\na=candidate:').length - 1;
+    const relayCount = (sdp.match(/ typ relay /g) || []).length;
+    console.log(`📤 Offer ready with ${candidateCount} inline ICE candidate(s) (relay=${relayCount})`);
     return finalOffer;
   } catch (error) {
     console.error('Error creating offer:', error);
@@ -290,8 +315,10 @@ export async function createAnswer(peerConnection, offer) {
     await peerConnection.setLocalDescription(answer);
     await waitForIceGatheringComplete(peerConnection);
     const finalAnswer = peerConnection.localDescription;
-    const candidateCount = (finalAnswer?.sdp || '').split('\na=candidate:').length - 1;
-    console.log(`📤 Answer ready with ${candidateCount} inline ICE candidate(s)`);
+    const sdp = finalAnswer?.sdp || '';
+    const candidateCount = sdp.split('\na=candidate:').length - 1;
+    const relayCount = (sdp.match(/ typ relay /g) || []).length;
+    console.log(`📤 Answer ready with ${candidateCount} inline ICE candidate(s) (relay=${relayCount})`);
     return finalAnswer;
   } catch (error) {
     console.error('Error creating answer:', error);

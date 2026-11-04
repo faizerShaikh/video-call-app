@@ -568,12 +568,11 @@ export function VideoCall() {
                 videoTracks: videoTracks.length,
               });
 
-              // Only resend offer while waiting for answer. Do NOT tear down a stable
-              // PC here — recovery that kills live tracks causes endless reconnect loops.
+              // Only resend when we truly have no remote answer yet.
               if (
                 pc.signalingState === 'have-local-offer' &&
-                pc.localDescription &&
-                pc.iceConnectionState === 'new'
+                !pc.remoteDescription &&
+                pc.localDescription
               ) {
                 console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
                 socket.emit('offer', {
