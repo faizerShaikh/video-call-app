@@ -11,10 +11,9 @@ import {
 } from '@/utils/webrtc';
 
 // Import these functions directly for use in callbacks
-import { 
-  createAnswer as createAnswerUtil, 
-  setRemoteDescription as setRemoteDescriptionUtil,
-  createOffer as createOfferUtil
+import {
+  createAnswer as createAnswerUtil,
+  createOffer as createOfferUtil,
 } from '@/utils/webrtc';
 
 export function useWebRTC(socket, roomId, localUserId) {
@@ -744,30 +743,32 @@ export function useWebRTC(socket, roomId, localUserId) {
           console.log(`🔄 Simultaneous offer detected with ${from}. Setting remote description and creating answer...`);
           
           try {
-            // Set the remote description (their offer)
-            await setRemoteDescriptionUtil(pc, offer);
-            console.log(`✅ Set remote description from ${from}'s offer`);
-            
-            // Create answer (this will replace our local offer)
+            // Perfect Negotiation style: only the "polite" peer (higher id) yields.
+            // The impolite peer keeps its offer and ignores the glare offer.
+            const isPolite = String(socket.id) > String(from);
+            if (!isPolite) {
+              console.log(`ℹ️ Ignoring glare offer from ${from} (keeping our local offer)`);
+              return;
+            }
+
+            if (typeof pc.setLocalDescription === 'function' && pc.signalingState !== 'stable') {
+              await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+            }
+
             const answer = await createAnswerUtil(pc, offer);
-            console.log(`✅ Created answer to ${from}'s offer`);
-            
-            // Send the answer
+            console.log(`✅ Created answer to ${from}'s glare offer`);
+
             socket.emit('answer', {
               answer,
               roomId,
               targetId: from,
             });
             console.log(`✅ Answer sent to ${from}`);
-            
-            // Process queued ICE candidates
+
             await processIceCandidateQueue(from);
-            
-            return; // Done handling simultaneous offer
+            return;
           } catch (err) {
             console.error(`❌ Error handling simultaneous offer from ${from}:`, err);
-            // If this fails, we might need to recreate the connection
-            // But for now, just log the error
             return;
           }
         } else if (pc.remoteDescription) {
@@ -893,13 +894,8 @@ export function useWebRTC(socket, roomId, localUserId) {
 
       console.log(`📥 Setting remote description from answer from ${from}...`);
       console.log(`📥 Answer SDP (first 200 chars):`, answer.sdp?.substring(0, 200));
-      
-      // Check if answer has public IPs
-      const hasPublicIP = answer.sdp && !answer.sdp.includes('127.0.0.1') && !answer.sdp.includes('0.0.0.0');
-      if (!hasPublicIP) {
-        console.warn(`⚠️ Answer SDP contains localhost IP - NAT traversal might fail`);
-      }
-      
+      // Chrome always sets SDP o= to 127.0.0.1; that is normal and not a NAT failure.
+
       await setRemoteDescription(pc, answer);
       console.log(`✅ Remote description set for ${from}, processing queued ICE candidates`);
       

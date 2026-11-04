@@ -510,22 +510,21 @@ export function VideoCall() {
         // Use a longer delay to avoid interfering with initial connection setup
         setTimeout(() => {
           const peerConnections = getPeerConnections();
-          // Filter out our own socket ID and participants we already have connections with
+          // Only the peer with the lower socket id offers — avoids double-offer glare.
           const missingConnections = otherParticipants.filter(
-            (participantId) => 
-              participantId !== socket.id && // Don't connect to self
-              !peerConnections.has(participantId) // Don't create duplicate connections
+            (participantId) =>
+              participantId !== socket.id &&
+              !peerConnections.has(participantId) &&
+              String(socket.id) < String(participantId)
           );
           
           if (missingConnections.length > 0) {
             console.log(`⚠️ Missing ${missingConnections.length} peer connection(s):`, missingConnections);
-            // Create missing connections sequentially
             (async () => {
               for (const participantId of missingConnections) {
                 console.log(`📞 Creating missing connection with ${participantId}...`);
                 try {
                   await startCallWithParticipant(participantId);
-                  // Small delay between connections
                   await new Promise(resolve => setTimeout(resolve, 400));
                 } catch (err) {
                   console.error(`❌ Failed to create connection with ${participantId}:`, err);
@@ -590,39 +589,12 @@ export function VideoCall() {
         offerTimeoutRef.current = null;
       }
       
-      // If there are other participants, create peer connections with all of them
+      // Existing members create offers on user-joined. As the new joiner, only answer —
+      // do not also offer, or both sides collide and video fails (especially over WAN).
       if (participantCount > 1 && otherParticipants && otherParticipants.length > 0) {
         console.log('👥 Other participants already in room:', otherParticipants);
-        console.log('👥 Creating peer connections with all participants...');
-        
-        // Wait a bit to ensure all participants are ready, then create connections
-        offerTimeoutRef.current = setTimeout(() => {
-          // Create peer connections with all existing participants
-          // Use sequential creation to avoid race conditions
-          (async () => {
-            for (const participantId of otherParticipants) {
-              // Skip if trying to connect to self
-              if (participantId === socket.id) {
-                console.warn(`⚠️ Skipping self in otherParticipants: ${participantId}`);
-                continue;
-              }
-              
-              const peerConnections = getPeerConnections();
-              if (!peerConnections.has(participantId)) {
-                console.log(`📞 Creating connection with ${participantId}...`);
-                await startCallWithParticipant(participantId);
-                // Small delay between connections to avoid overwhelming the system
-                await new Promise(resolve => setTimeout(resolve, 200));
-              } else {
-                console.log(`⚠️ Already have connection with ${participantId}, skipping`);
-              }
-            }
-          })();
-          offerTimeoutRef.current = null;
-        }, 1000);
+        console.log('⏳ Waiting for offers from existing participants (will answer only)...');
       } else {
-        // We're the first one - wait for others to join
-        // The offer will be sent when another user joins (via user-joined event)
         console.log('👤 First participant, waiting for another participant to join...');
         console.log('💡 Will create peer connections when other users join the room');
       }

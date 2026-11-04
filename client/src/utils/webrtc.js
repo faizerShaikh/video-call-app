@@ -68,6 +68,10 @@ export async function getIceServers() {
         const turnServer = buildSelfHostedTurnIceServer(payload);
         cachedIceServers = turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS];
       }
+      const hasTurn = cachedIceServers.some((server) =>
+        [].concat(server.urls || []).some((url) => String(url).startsWith('turn'))
+      );
+      console.log(`🌐 ICE servers ready (provider=${payload?.provider || 'unknown'}, turn=${hasTurn ? 'yes' : 'no'})`);
     } catch (error) {
       console.error('Failed to fetch TURN credentials, using STUN fallback:', error);
       cachedIceServers = [...STUN_SERVERS];
