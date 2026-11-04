@@ -1,5 +1,4 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const FORCE_TURN_RELAY = String(import.meta.env.VITE_FORCE_TURN_RELAY || '').toLowerCase() === 'true';
 
 const STUN_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -85,20 +84,14 @@ export async function getIceServers() {
 
 export async function getRTCConfig() {
   const iceServers = await getIceServers();
-  const rtcConfig = {
+  // Never force relay-only. Relay-only + failed TURN allocate leaves ICE stuck at "new"
+  // with black video even after SDP/answer succeeds.
+  return {
     iceServers,
     iceCandidatePoolSize: 16,
     bundlePolicy: 'max-bundle',
+    iceTransportPolicy: 'all',
   };
-
-  // Only force relay when explicitly requested. Auto-forcing it on production can
-  // leave calls stuck on "Connecting" if the TURN allocate path fails.
-  if (FORCE_TURN_RELAY) {
-    rtcConfig.iceTransportPolicy = 'relay';
-    console.log('🔒 ICE transport policy: relay');
-  }
-
-  return rtcConfig;
 }
 
 /**
