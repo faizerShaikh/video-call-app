@@ -657,12 +657,12 @@ export function setupSocket(io) {
         }
         if (!rooms.get(normalizedRoomId).has(targetId)) return;
         log(`📤 Offer ${socket.id} → ${targetId}`);
-        socket.to(targetId).emit('offer', { offer, from: socket.id });
+        io.to(targetId).emit('offer', { offer, from: socket.id });
       } else {
         const roomParticipants = rooms.get(normalizedRoomId);
         if (!roomParticipants) return;
         const live = Array.from(roomParticipants).filter((id) => id !== socket.id && io.sockets.sockets.has(id));
-        live.forEach((id) => socket.to(id).emit('offer', { offer, from: socket.id }));
+        live.forEach((id) => io.to(id).emit('offer', { offer, from: socket.id }));
       }
     });
 
@@ -678,20 +678,23 @@ export function setupSocket(io) {
           return;
         }
         if (!rooms.get(normalizedRoomId).has(targetId)) return;
-        socket.to(targetId).emit('answer', { answer, from: socket.id });
+        io.to(targetId).emit('answer', { answer, from: socket.id });
       } else {
         const roomParticipants = rooms.get(normalizedRoomId);
         if (!roomParticipants) return;
         Array.from(roomParticipants)
           .filter((id) => id !== socket.id && io.sockets.sockets.has(id))
-          .forEach((id) => socket.to(id).emit('answer', { answer, from: socket.id }));
+          .forEach((id) => io.to(id).emit('answer', { answer, from: socket.id }));
       }
     });
 
     // Handle ICE candidates
     socket.on('ice-candidate', ({ candidate, roomId, targetId }) => {
       const normalizedRoomId = normalizeRoomId(roomId);
-      if (!normalizedRoomId) return;
+      if (!normalizedRoomId) {
+        log(`⚠️ Dropped ICE candidate from ${socket.id}: missing roomId`);
+        return;
+      }
       if (!rooms.has(normalizedRoomId) || !rooms.get(normalizedRoomId).has(socket.id)) return;
       if (targetId) {
         if (targetId === socket.id) return;
@@ -700,13 +703,13 @@ export function setupSocket(io) {
           return;
         }
         if (!rooms.get(normalizedRoomId).has(targetId)) return;
-        socket.to(targetId).emit('ice-candidate', { candidate, from: socket.id });
+        io.to(targetId).emit('ice-candidate', { candidate, from: socket.id });
       } else {
         const roomParticipants = rooms.get(normalizedRoomId);
         if (!roomParticipants) return;
         Array.from(roomParticipants)
           .filter((id) => id !== socket.id && io.sockets.sockets.has(id))
-          .forEach((id) => socket.to(id).emit('ice-candidate', { candidate, from: socket.id }));
+          .forEach((id) => io.to(id).emit('ice-candidate', { candidate, from: socket.id }));
       }
     });
 

@@ -41,6 +41,11 @@ export function useWebRTC(socket, roomId, localUserId) {
   const cameraTrackRef = useRef(null);
   const microphoneTrackRef = useRef(null);
   const screenAudioTrackRef = useRef(null);
+  // Always use latest socket/roomId inside PC event handlers (avoid stale closures).
+  const socketRef = useRef(socket);
+  const roomIdRef = useRef(roomId);
+  socketRef.current = socket;
+  roomIdRef.current = roomId;
 
   // Initialize local stream
   const initializeLocalStream = useCallback(async () => {
@@ -591,17 +596,22 @@ export function useWebRTC(socket, roomId, localUserId) {
       }
     };
 
-    // Handle ICE candidate
+    // Handle ICE candidate — use refs so a stale roomId '' cannot drop candidates on the server.
     pc.onicecandidate = (event) => {
-      if (event.candidate && socket) {
+      const activeSocket = socketRef.current;
+      const activeRoomId = roomIdRef.current;
+      if (event.candidate && activeSocket && activeRoomId) {
         const c = event.candidate;
         const type = c.type || (c.candidate && c.candidate.split(' ')[7]) || 'unknown';
+        const payload = typeof c.toJSON === 'function' ? c.toJSON() : c;
         console.log(`🧊 Sending ICE candidate to ${participantId} (${type})`);
-        socket.emit('ice-candidate', {
-          candidate: event.candidate,
-          roomId,
-          targetId: participantId, // Send to specific participant
+        activeSocket.emit('ice-candidate', {
+          candidate: payload,
+          roomId: activeRoomId,
+          targetId: participantId,
         });
+      } else if (event.candidate && !activeRoomId) {
+        console.warn(`⚠️ Dropping ICE candidate — roomId not set yet for ${participantId}`);
       } else if (!event.candidate) {
         console.log(`✅ All ICE candidates gathered for ${participantId}`);
       }
@@ -650,13 +660,15 @@ export function useWebRTC(socket, roomId, localUserId) {
   // Start call with a specific participant (create offer)
   const startCallWithParticipant = useCallback(async (participantId) => {
     try {
-      if (!socket || !roomId) {
+      const activeSocket = socketRef.current;
+      const activeRoomId = roomIdRef.current;
+      if (!activeSocket || !activeRoomId) {
         throw new Error('Socket or room ID not available');
       }
 
       // Prevent creating peer connection with self
-      if (participantId === socket.id) {
-        console.error(`❌ Cannot create peer connection with self: ${participantId} === ${socket.id}`);
+      if (participantId === activeSocket.id) {
+        console.error(`❌ Cannot create peer connection with self: ${participantId} === ${activeSocket.id}`);
         return;
       }
 
@@ -682,15 +694,15 @@ export function useWebRTC(socket, roomId, localUserId) {
 
       // Create and send offer
       console.log(`📤 Creating and sending offer to ${participantId}...`);
-      console.log('📤 Room ID:', roomId);
+      console.log('📤 Room ID:', activeRoomId);
       const offer = await createOffer(pc);
       console.log('📤 Offer created, type:', offer.type);
-      socket.emit('offer', {
+      activeSocket.emit('offer', {
         offer,
-        roomId,
-        targetId: participantId, // Send to specific participant
+        roomId: activeRoomId,
+        targetId: participantId,
       });
-      console.log(`✅ Offer sent to ${participantId} in room:`, roomId);
+      console.log(`✅ Offer sent to ${participantId} in room:`, activeRoomId);
 
       // Update connection state
       setConnectionStates(prev => {
@@ -755,9 +767,9 @@ export function useWebRTC(socket, roomId, localUserId) {
           if (!isPolite) {
             console.log(`ℹ️ Ignoring glare offer from ${from} (keeping our local offer)`);
             if (pc.localDescription?.type === 'offer') {
-              socket.emit('offer', {
+              socketRef.current?.emit('offer', {
                 offer: pc.localDescription,
-                roomId,
+                roomId: roomIdRef.current,
                 targetId: from,
               });
             }
@@ -805,12 +817,12 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.log(`✅ Answer created for ${from}`);
       await processIceCandidateQueue(from);
 
-      socket.emit('answer', {
+      socketRef.current?.emit('answer', {
         answer,
-        roomId,
+        roomId: roomIdRef.current,
         targetId: from,
       });
-      console.log(`✅ Answer sent to ${from} in room:`, roomId);
+      console.log(`✅ Answer sent to ${from} in room:`, roomIdRef.current);
 
       // Send initial media state
       if (socket && roomId && localStreamRef.current) {

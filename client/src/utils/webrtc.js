@@ -265,9 +265,12 @@ export async function setRemoteDescription(peerConnection, description) {
  */
 export async function addIceCandidate(peerConnection, candidate) {
   try {
-    if (candidate) {
-      await peerConnection.addIceCandidate(candidate);
-    }
+    if (!candidate) return;
+    const init =
+      candidate instanceof RTCIceCandidate
+        ? candidate
+        : new RTCIceCandidate(candidate);
+    await peerConnection.addIceCandidate(init);
   } catch (error) {
     console.error('Error adding ICE candidate:', error);
     throw error;
