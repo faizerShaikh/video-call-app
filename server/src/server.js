@@ -111,7 +111,7 @@ app.get('/health', async (req, res) => {
       allowedOrigins: process.env.CORS_ORIGIN || 'all (development)',
     },
     vercel: isVercel,
-    socketTransports: isVercel ? ['polling'] : ['polling', 'websocket'],
+    socketTransports: isVercel ? ['polling'] : ['websocket', 'polling'],
   });
 });
 

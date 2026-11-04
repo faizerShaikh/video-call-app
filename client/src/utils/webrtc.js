@@ -91,18 +91,9 @@ export async function getRTCConfig() {
     bundlePolicy: 'max-bundle',
   };
 
-  const hasTurn = iceServers.some((server) =>
-    [].concat(server.urls || []).some((url) => String(url).startsWith('turn'))
-  );
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isLocalHost =
-    hostname === 'localhost' ||
-    hostname === '127.0.0.1' ||
-    hostname.startsWith('192.168.') ||
-    hostname.startsWith('10.');
-
-  // On the public site, force Metered relay so cross-network calls do not depend on LAN host candidates.
-  if (FORCE_TURN_RELAY || (!isLocalHost && hasTurn)) {
+  // Only force relay when explicitly requested. Auto-forcing it on production can
+  // leave calls stuck on "Connecting" if the TURN allocate path fails.
+  if (FORCE_TURN_RELAY) {
     rtcConfig.iceTransportPolicy = 'relay';
     console.log('🔒 ICE transport policy: relay');
   }
