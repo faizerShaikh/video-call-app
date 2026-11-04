@@ -51,6 +51,23 @@ function normalizeIceServersFromProvider(payload) {
   return null;
 }
 
+function summarizeIceServers(servers) {
+  let stun = 0;
+  let turn = 0;
+  const urls = [];
+
+  for (const server of servers || []) {
+    const list = Array.isArray(server.urls) ? server.urls : [server.urls];
+    for (const url of list.filter(Boolean)) {
+      urls.push(url);
+      if (String(url).startsWith('turn')) turn += 1;
+      else stun += 1;
+    }
+  }
+
+  return { stun, turn, urls };
+}
+
 export async function getIceServers() {
   if (iceServerPromise) {
     return iceServerPromise;
@@ -63,13 +80,26 @@ export async function getIceServers() {
 
       if (providerIceServers && providerIceServers.length > 0) {
         cachedIceServers = providerIceServers;
+        console.log(`🧊 ICE servers from provider (${payload?.provider || 'unknown'}):`, summarizeIceServers(cachedIceServers));
       } else {
         const turnServer = buildSelfHostedTurnIceServer(payload);
         cachedIceServers = turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS];
+        if (turnServer) {
+          console.log('🧊 ICE servers from self-hosted TURN + STUN:', summarizeIceServers(cachedIceServers));
+        } else {
+          console.warn(
+            '⚠️ No TURN URLs available (missing provider iceServers and VITE_TURN_URL). Cross-network calls will stay in ICE checking.'
+          );
+        }
       }
     } catch (error) {
       console.error('Failed to fetch TURN credentials, using STUN fallback:', error);
       cachedIceServers = [...STUN_SERVERS];
+    }
+
+    const summary = summarizeIceServers(cachedIceServers);
+    if (summary.turn === 0) {
+      console.warn('⚠️ ICE config has 0 TURN/relay servers — only STUN. Different networks usually cannot connect.');
     }
 
     return cachedIceServers;
