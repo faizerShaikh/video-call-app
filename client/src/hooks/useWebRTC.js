@@ -608,6 +608,7 @@ export function useWebRTC(socket, roomId, localUserId) {
     };
 
     // Store peer connection
+    pc._synchroStartedAt = Date.now();
     peerConnectionsRef.current.set(participantId, pc);
     return pc;
   }, [socket, roomId]);
@@ -754,6 +755,14 @@ export function useWebRTC(socket, roomId, localUserId) {
             const isPolite = String(socket.id) > String(from);
             if (!isPolite) {
               console.log(`ℹ️ Ignoring glare offer from ${from} (keeping our local offer)`);
+              // Make sure they still have our offer to answer.
+              if (pc.localDescription?.type === 'offer') {
+                socket.emit('offer', {
+                  offer: pc.localDescription,
+                  roomId,
+                  targetId: from,
+                });
+              }
               return;
             }
 
@@ -853,10 +862,18 @@ export function useWebRTC(socket, roomId, localUserId) {
   // Handle incoming answer
   const handleAnswer = useCallback(async (answer, from) => {
     try {
-      const pc = peerConnectionsRef.current.get(from);
+      let pc = peerConnectionsRef.current.get(from);
       if (!pc) {
-        console.log(`⚠️ No peer connection yet for ${from}, cannot handle answer`);
-        return;
+        // Answer arrived before our local offer finished creating the PC — wait briefly.
+        console.log(`⏳ No peer connection yet for ${from}, waiting for local PC...`);
+        for (let i = 0; i < 10 && !pc; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          pc = peerConnectionsRef.current.get(from);
+        }
+        if (!pc) {
+          console.log(`⚠️ Still no peer connection for ${from}, dropping answer`);
+          return;
+        }
       }
       
       // Check the signaling state - we can only set an answer when we have a local offer
@@ -1132,6 +1149,14 @@ export function useWebRTC(socket, roomId, localUserId) {
     }
   }, [socket, roomId, startCallWithParticipant]);
 
+  // Close a stuck peer connection and optionally create a fresh offer.
+  const restartPeerConnection = useCallback(async (participantId, { offer = true } = {}) => {
+    console.warn(`♻️ Restarting peer connection with ${participantId} (offer=${offer})`);
+    removeParticipant(participantId);
+    if (!offer) return;
+    await startCallWithParticipant(participantId);
+  }, [removeParticipant, startCallWithParticipant]);
+
   // Update remote media state for a specific participant
   const updateRemoteMediaState = useCallback((participantId, videoEnabled, audioEnabled) => {
     setRemoteMediaStates(prev => {
@@ -1221,12 +1246,36 @@ export function useWebRTC(socket, roomId, localUserId) {
     // Run verification every 2 seconds for faster recovery
     const verificationInterval = setInterval(() => {
       verifyAndFixStreams();
+
+      // Recover peers stuck in "new" forever (offer never answered).
+      // Only the lower socket id restarts with an offer to avoid glare.
+      peerConnectionsRef.current.forEach((pc, participantId) => {
+        const stuck =
+          (pc.connectionState === 'new' || pc.connectionState === 'connecting') &&
+          (pc.iceConnectionState === 'new' || pc.iceConnectionState === 'checking') &&
+          !pc.remoteDescription;
+
+        if (!stuck) return;
+
+        const startedAt = pc._synchroStartedAt || (pc._synchroStartedAt = Date.now());
+        if (Date.now() - startedAt < 5000) return;
+        if (pc._synchroRestarting) return;
+        pc._synchroRestarting = true;
+
+        const shouldOffer = String(socket.id) < String(participantId);
+        console.warn(
+          `⚠️ Peer ${participantId} stuck at connection=${pc.connectionState} ice=${pc.iceConnectionState} signaling=${pc.signalingState} — recovering`
+        );
+        restartPeerConnection(participantId, { offer: shouldOffer }).catch((err) => {
+          console.error(`❌ Failed to recover peer ${participantId}:`, err);
+        });
+      });
     }, 2000);
     
     return () => {
       clearInterval(verificationInterval);
     };
-  }, [socket, roomId, verifyAndFixStreams]);
+  }, [socket, roomId, verifyAndFixStreams, restartPeerConnection]);
   
   // Also verify when connection states change
   useEffect(() => {
@@ -1255,6 +1304,7 @@ export function useWebRTC(socket, roomId, localUserId) {
     removeParticipant,
     initializeLocalStream,
     resendOffer,
+    restartPeerConnection,
     updateRemoteMediaState,
     getPeerConnections, // Expose for checking existing connections
   };

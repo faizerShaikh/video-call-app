@@ -540,27 +540,38 @@ export function VideoCall() {
             })();
           } else {
             console.log('✅ All peer connections exist');
-            
-            // Even if connections exist, verify they're working and have tracks
+
             otherParticipants.forEach((participantId) => {
+              if (participantId === socket.id) return;
               const pc = peerConnections.get(participantId);
-              if (pc) {
-                const receivers = pc.getReceivers();
-                const tracks = receivers.map(r => r.track).filter(Boolean);
-                const videoTracks = tracks.filter(t => t.kind === 'video' && t.readyState === 'live');
-                
-                console.log(`📊 Participant ${participantId}:`, {
-                  connectionState: pc.connectionState,
-                  iceConnectionState: pc.iceConnectionState,
-                  receivers: receivers.length,
-                  tracks: tracks.length,
-                  videoTracks: videoTracks.length,
+              if (!pc) return;
+
+              const receivers = pc.getReceivers();
+              const tracks = receivers.map((r) => r.track).filter(Boolean);
+              const videoTracks = tracks.filter((t) => t.kind === 'video' && t.readyState === 'live');
+
+              console.log(`📊 Participant ${participantId}:`, {
+                connectionState: pc.connectionState,
+                iceConnectionState: pc.iceConnectionState,
+                signalingState: pc.signalingState,
+                receivers: receivers.length,
+                tracks: tracks.length,
+                videoTracks: videoTracks.length,
+              });
+
+              // Stuck before ICE starts: resend or restart instead of logging forever.
+              if (
+                pc.connectionState === 'new' &&
+                pc.iceConnectionState === 'new' &&
+                pc.signalingState === 'have-local-offer' &&
+                pc.localDescription
+              ) {
+                console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
+                socket.emit('offer', {
+                  offer: pc.localDescription,
+                  roomId,
+                  targetId: participantId,
                 });
-                
-                // If connection is established but no video tracks, try to fix it
-                if ((pc.connectionState === 'connected' || pc.iceConnectionState === 'connected') && videoTracks.length === 0) {
-                  console.warn(`⚠️ Participant ${participantId} has connection but no video tracks, will be fixed by verification`);
-                }
               }
             });
           }
