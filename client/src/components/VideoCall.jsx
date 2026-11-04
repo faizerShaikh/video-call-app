@@ -341,10 +341,17 @@ export function VideoCall() {
   useEffect(() => {
     if (!socket) return;
 
-    // Re-join room on reconnect (socket.id changes after disconnect; server forgets us)
+    // Re-join only after a real reconnect. Running this on the first connect races
+    // with handleJoinRoom and tears down peer connections mid-setup.
+    let seenConnect = false;
     const onConnect = () => {
+      if (!seenConnect) {
+        seenConnect = true;
+        return;
+      }
       const roomToRejoin = currentRoomIdRef.current;
       if (!roomToRejoin) return;
+      console.log('🔄 Socket reconnected — rejoining room', roomToRejoin);
       endCall();
       setRoomId(roomToRejoin);
       setHasJoinedRoom(false);

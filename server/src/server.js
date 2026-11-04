@@ -34,8 +34,8 @@ const io = new Server(httpServer, {
   allowEIO3: true, // Allow Engine.IO v3 clients
   // For Vercel/serverless: Only use polling (websockets don't work with serverless)
   // For regular servers: Can use ['polling', 'websocket']
-  transports: isVercel ? ['polling'] : ['polling', 'websocket'],
-  allowUpgrades: !isVercel, // Disable transport upgrades on Vercel
+  transports: isVercel ? ['polling'] : ['websocket', 'polling'],
+  allowUpgrades: !isVercel,
   pingTimeout: 60000,
   pingInterval: 25000,
   connectTimeout: 45000,

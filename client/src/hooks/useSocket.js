@@ -51,9 +51,10 @@ export function useSocket() {
     const isRailway = SOCKET_URL.includes('railway.app') || SOCKET_URL.includes('railway.xyz');
     const isRender = SOCKET_URL.includes('render.com') || SOCKET_URL.includes('onrender.com');
     
-    // Use polling only for Vercel, both for Railway/Render/local
-    const transports = isVercel ? ['polling'] : ['polling', 'websocket'];
-    const upgrade = !isVercel; // Disable upgrade on Vercel
+    // Prefer WebSocket first. Polling-only behind nginx often reconnects with a new
+    // socket id mid-call, which leaves remote video stuck on "Connecting".
+    const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
+    const upgrade = !isVercel;
     
     console.log('🔌 Socket configuration:', {
       url: SOCKET_URL,
@@ -65,8 +66,8 @@ export function useSocket() {
     });
     
     const newSocket = io(SOCKET_URL, {
-      transports, // Use only polling on Vercel, polling+websocket elsewhere
-      upgrade, // Disable upgrade on Vercel
+      transports,
+      upgrade,
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 15,
