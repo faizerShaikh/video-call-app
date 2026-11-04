@@ -413,9 +413,15 @@ export function useWebRTC(socket, roomId, localUserId) {
         
         connectionTimeoutsRef.current.set(participantId, timeoutId);
         
-        // If stuck in connecting for too long, try to renegotiate (after 10 seconds)
+        // Only renegotiate when signaling is stable. Offering during have-local-offer
+        // drops answers and leaves remotes stuck on Connecting.
         setTimeout(() => {
-          if (pc.connectionState === 'connecting' && pc.localDescription && pc.remoteDescription) {
+          if (
+            pc.connectionState === 'connecting' &&
+            pc.signalingState === 'stable' &&
+            pc.localDescription &&
+            pc.remoteDescription
+          ) {
             console.log(`⚠️ Connection to ${participantId} stuck in 'connecting' state, attempting renegotiation...`);
             createOffer(pc).then(newOffer => {
               socket.emit('offer', {
@@ -428,7 +434,7 @@ export function useWebRTC(socket, roomId, localUserId) {
               console.error(`❌ Failed to create renegotiation offer for ${participantId}:`, err);
             });
           }
-        }, 10000); // Try renegotiation after 10 seconds
+        }, 10000);
       } else if (state === 'failed') {
         console.error(`❌ WebRTC connection failed with ${participantId}`);
         

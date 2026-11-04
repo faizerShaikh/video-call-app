@@ -589,11 +589,32 @@ export function VideoCall() {
         offerTimeoutRef.current = null;
       }
       
-      // Existing members create offers on user-joined. As the new joiner, only answer —
-      // do not also offer, or both sides collide and video fails (especially over WAN).
+      // Prefer answering offers from existing members. If none arrive, fall back to offering
+      // (polite peer only) so a missed user-joined cannot leave remotes black forever.
       if (participantCount > 1 && otherParticipants && otherParticipants.length > 0) {
         console.log('👥 Other participants already in room:', otherParticipants);
-        console.log('⏳ Waiting for offers from existing participants (will answer only)...');
+        console.log('⏳ Waiting for offers from existing participants...');
+        offerTimeoutRef.current = setTimeout(() => {
+          const peerConnections = getPeerConnections();
+          const missing = otherParticipants.filter(
+            (participantId) =>
+              participantId !== socket.id &&
+              !peerConnections.has(participantId)
+          );
+          if (missing.length === 0) return;
+          console.warn('⚠️ No offers received in time; creating fallback offers for:', missing);
+          (async () => {
+            for (const participantId of missing) {
+              try {
+                await startCallWithParticipant(participantId);
+                await new Promise((resolve) => setTimeout(resolve, 300));
+              } catch (err) {
+                console.error(`❌ Fallback offer to ${participantId} failed:`, err);
+              }
+            }
+          })();
+          offerTimeoutRef.current = null;
+        }, 2500);
       } else {
         console.log('👤 First participant, waiting for another participant to join...');
         console.log('💡 Will create peer connections when other users join the room');

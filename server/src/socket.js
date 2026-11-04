@@ -278,8 +278,9 @@ function admitParticipant(io, socket, normalizedRoomId, { userId, userName, user
     isHost = true;
   }
 
-  const otherParticipants = Array.from(rooms.get(normalizedRoomId))
-    .filter((id) => id !== socket.id && io.sockets.sockets.has(id));
+  const allParticipants = Array.from(rooms.get(normalizedRoomId))
+    .filter((id) => io.sockets.sockets.has(id));
+  const otherParticipants = allParticipants.filter((id) => id !== socket.id);
   const otherParticipantDetails = buildParticipantDetails(normalizedRoomId, socket.id)
     .filter((p) => io.sockets.sockets.has(p.socketId));
 
@@ -291,10 +292,12 @@ function admitParticipant(io, socket, normalizedRoomId, { userId, userName, user
   });
 
   const participantCount = rooms.get(normalizedRoomId).size;
+  // Broadcast the FULL room member list. Each client filters out its own socket id.
+  // (Previously this sent only the joiner's "others", so existing peers never saw the new id.)
   io.to(normalizedRoomId).emit('room-update', {
     participantCount,
     roomId: normalizedRoomId,
-    otherParticipants,
+    otherParticipants: allParticipants,
     participantDetails: buildParticipantDetails(normalizedRoomId),
     activeScreenShare: getScreenShareState(normalizedRoomId),
     hostSocketId: roomHosts.get(normalizedRoomId) || null,
