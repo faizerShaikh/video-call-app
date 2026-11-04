@@ -1,5 +1,3 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-
 const STUN_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -12,8 +10,37 @@ const STUN_SERVERS = [
 let cachedIceServers = [...STUN_SERVERS];
 let iceServerPromise = null;
 
+/**
+ * Prefer same-origin `/api/...` in production (nginx proxies it).
+ * Avoids a bad/missing VITE_API_URL baking localhost into the client and
+ * silently falling back to STUN-only (no relay across networks).
+ */
+function getApiBaseUrl() {
+  const fromEnv = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+  if (typeof window === 'undefined') {
+    return fromEnv || 'http://localhost:3001';
+  }
+
+  const { hostname, port, origin } = window.location;
+  const isViteDev = hostname === 'localhost' || hostname === '127.0.0.1';
+  if (isViteDev && (port === '5173' || port === '5174')) {
+    return fromEnv || 'http://localhost:3001';
+  }
+
+  // Production / same-host deploy: always hit this origin so nginx can proxy /api
+  if (!isViteDev) {
+    return origin;
+  }
+
+  return fromEnv || origin;
+}
+
 async function fetchTurnCredentials() {
-  const response = await fetch(`${API_BASE_URL}/api/turn-credentials`, {
+  const base = getApiBaseUrl();
+  const url = `${base}/api/turn-credentials`;
+  console.log('🧊 Fetching TURN credentials from:', url);
+
+  const response = await fetch(url, {
     method: 'GET',
     credentials: 'include',
   });
