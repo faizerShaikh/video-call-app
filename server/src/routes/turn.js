@@ -77,13 +77,20 @@ function getSelfHostedCredentials() {
 }
 
 router.get('/turn-credentials', async (req, res) => {
+  // TURN creds are short-lived; never let browser/nginx serve a stale 304 body
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    Pragma: 'no-cache',
+    Expires: '0',
+  });
+
   try {
     const provider = getTurnProvider();
 
     if (provider === 'metered') {
       try {
         const iceServers = await getMeteredIceServers();
-        return res.json({
+        return res.status(200).json({
           provider,
           iceServers,
         });
@@ -92,7 +99,7 @@ router.get('/turn-credentials', async (req, res) => {
 
         if (hasSelfHostedTurnConfig()) {
           const credentials = getSelfHostedCredentials();
-          return res.json({
+          return res.status(200).json({
             provider: 'selfhosted-fallback',
             fallbackReason: error.message,
             ...credentials,
@@ -104,7 +111,7 @@ router.get('/turn-credentials', async (req, res) => {
     }
 
     const credentials = getSelfHostedCredentials();
-    return res.json({
+    return res.status(200).json({
       provider: 'selfhosted',
       ...credentials,
     });
