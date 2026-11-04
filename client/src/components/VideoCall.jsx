@@ -129,7 +129,6 @@ export function VideoCall() {
     initializeLocalStream,
     updateRemoteMediaState,
     getPeerConnections, // Get peer connections map
-    removeParticipant,
   } = useWebRTC(socket, roomId, localUserId);
 
   // Keep latest WebRTC handlers in refs so socket listeners stay mounted.
@@ -517,73 +516,30 @@ export function VideoCall() {
         });
       }
       
-      // Ensure we have peer connections with all participants (safety net)
+      // Safety net: create any missing peer connections (same as previously working logic)
       if (hasJoinedRoom && otherParticipants && otherParticipants.length > 0) {
-        console.log('🔍 Verifying peer connections with all participants...');
-        console.log('📋 Other participants:', otherParticipants);
-        console.log('📋 Current peer connections:', Array.from(getPeerConnections().keys()));
-        
-        // Use a longer delay to avoid interfering with initial connection setup
         setTimeout(() => {
           const peerConnections = getPeerConnections();
-          // Only the peer with the lower socket id offers — avoids double-offer glare.
           const missingConnections = otherParticipants.filter(
             (participantId) =>
               participantId !== socket.id &&
-              !peerConnections.has(participantId) &&
-              String(socket.id) < String(participantId)
+              !peerConnections.has(participantId)
           );
-          
+
           if (missingConnections.length > 0) {
             console.log(`⚠️ Missing ${missingConnections.length} peer connection(s):`, missingConnections);
             (async () => {
               for (const participantId of missingConnections) {
-                console.log(`📞 Creating missing connection with ${participantId}...`);
                 try {
                   await startCallWithParticipant(participantId);
-                  await new Promise(resolve => setTimeout(resolve, 400));
+                  await new Promise((resolve) => setTimeout(resolve, 400));
                 } catch (err) {
                   console.error(`❌ Failed to create connection with ${participantId}:`, err);
                 }
               }
             })();
-          } else {
-            console.log('✅ All peer connections exist');
-
-            otherParticipants.forEach((participantId) => {
-              if (participantId === socket.id) return;
-              const pc = peerConnections.get(participantId);
-              if (!pc) return;
-
-              const receivers = pc.getReceivers();
-              const tracks = receivers.map((r) => r.track).filter(Boolean);
-              const videoTracks = tracks.filter((t) => t.kind === 'video' && t.readyState === 'live');
-
-              console.log(`📊 Participant ${participantId}:`, {
-                connectionState: pc.connectionState,
-                iceConnectionState: pc.iceConnectionState,
-                signalingState: pc.signalingState,
-                receivers: receivers.length,
-                tracks: tracks.length,
-                videoTracks: videoTracks.length,
-              });
-
-              // Only resend when we truly have no remote answer yet.
-              if (
-                pc.signalingState === 'have-local-offer' &&
-                !pc.remoteDescription &&
-                pc.localDescription
-              ) {
-                console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
-                socket.emit('offer', {
-                  offer: pc.localDescription,
-                  roomId,
-                  targetId: participantId,
-                });
-              }
-            });
           }
-        }, 2000); // Reduced delay for faster recovery
+        }, 2000);
       }
     });
 
@@ -615,35 +571,25 @@ export function VideoCall() {
         offerTimeoutRef.current = null;
       }
       
-      // Prefer answering offers from existing members. If none arrive, fall back to offering
-      // (polite peer only) so a missed user-joined cannot leave remotes black forever.
+      // Previously working behavior: new joiner also creates offers to existing peers.
       if (participantCount > 1 && otherParticipants && otherParticipants.length > 0) {
         console.log('👥 Other participants already in room:', otherParticipants);
-        console.log('⏳ Waiting for offers from existing participants...');
         offerTimeoutRef.current = setTimeout(() => {
-          const peerConnections = getPeerConnections();
-          const missing = otherParticipants.filter(
-            (participantId) =>
-              participantId !== socket.id &&
-              !peerConnections.has(participantId)
-          );
-          if (missing.length === 0) return;
-          console.warn('⚠️ No offers received in time; creating fallback offers for:', missing);
           (async () => {
-            for (const participantId of missing) {
-              try {
+            for (const participantId of otherParticipants) {
+              if (participantId === socket.id) continue;
+              const peerConnections = getPeerConnections();
+              if (!peerConnections.has(participantId)) {
+                console.log(`📞 Creating connection with ${participantId}...`);
                 await startCallWithParticipant(participantId);
-                await new Promise((resolve) => setTimeout(resolve, 300));
-              } catch (err) {
-                console.error(`❌ Fallback offer to ${participantId} failed:`, err);
+                await new Promise((resolve) => setTimeout(resolve, 200));
               }
             }
           })();
           offerTimeoutRef.current = null;
-        }, 2500);
+        }, 1000);
       } else {
         console.log('👤 First participant, waiting for another participant to join...');
-        console.log('💡 Will create peer connections when other users join the room');
       }
     });
 
@@ -759,7 +705,7 @@ export function VideoCall() {
       socket.off('screen-share:stopped');
       clearInterval(periodicCheckInterval);
     };
-  }, [socket, hasJoinedRoom, participantCount, roomId, startCallWithParticipant, getPeerConnections, removeParticipant, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall]);
+  }, [socket, hasJoinedRoom, participantCount, roomId, startCallWithParticipant, getPeerConnections, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall]);
 
   // Display errors
   useEffect(() => {

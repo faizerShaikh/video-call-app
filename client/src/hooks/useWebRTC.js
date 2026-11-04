@@ -11,9 +11,10 @@ import {
 } from '@/utils/webrtc';
 
 // Import these functions directly for use in callbacks
-import {
-  createAnswer as createAnswerUtil,
-  createOffer as createOfferUtil,
+import { 
+  createAnswer as createAnswerUtil, 
+  setRemoteDescription as setRemoteDescriptionUtil,
+  createOffer as createOfferUtil
 } from '@/utils/webrtc';
 
 export function useWebRTC(socket, roomId, localUserId) {
@@ -41,7 +42,6 @@ export function useWebRTC(socket, roomId, localUserId) {
   const cameraTrackRef = useRef(null);
   const microphoneTrackRef = useRef(null);
   const screenAudioTrackRef = useRef(null);
-  // Always use latest socket/roomId inside PC event handlers (avoid stale closures).
   const socketRef = useRef(socket);
   const roomIdRef = useRef(roomId);
   socketRef.current = socket;
@@ -417,29 +417,6 @@ export function useWebRTC(socket, roomId, localUserId) {
         }, 30000); // 30 second timeout
         
         connectionTimeoutsRef.current.set(participantId, timeoutId);
-        
-        // Only renegotiate when signaling is stable. Offering during have-local-offer
-        // drops answers and leaves remotes stuck on Connecting.
-        setTimeout(() => {
-          if (
-            pc.connectionState === 'connecting' &&
-            pc.signalingState === 'stable' &&
-            pc.localDescription &&
-            pc.remoteDescription
-          ) {
-            console.log(`⚠️ Connection to ${participantId} stuck in 'connecting' state, attempting renegotiation...`);
-            createOffer(pc).then(newOffer => {
-              socket.emit('offer', {
-                offer: newOffer,
-                roomId,
-                targetId: participantId,
-              });
-              console.log(`📤 Renegotiation offer sent to ${participantId}`);
-            }).catch(err => {
-              console.error(`❌ Failed to create renegotiation offer for ${participantId}:`, err);
-            });
-          }
-        }, 10000);
       } else if (state === 'failed') {
         console.error(`❌ WebRTC connection failed with ${participantId}`);
         
@@ -596,7 +573,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       }
     };
 
-    // Handle ICE candidate — use refs so a stale roomId '' cannot drop candidates on the server.
+    // Handle ICE candidate (refs avoid stale empty roomId dropping candidates on server)
     pc.onicecandidate = (event) => {
       const activeSocket = socketRef.current;
       const activeRoomId = roomIdRef.current;
@@ -611,14 +588,13 @@ export function useWebRTC(socket, roomId, localUserId) {
           targetId: participantId,
         });
       } else if (event.candidate && !activeRoomId) {
-        console.warn(`⚠️ Dropping ICE candidate — roomId not set yet for ${participantId}`);
+        console.warn(`⚠️ Dropping ICE candidate — roomId not set for ${participantId}`);
       } else if (!event.candidate) {
         console.log(`✅ All ICE candidates gathered for ${participantId}`);
       }
     };
 
     // Store peer connection
-    pc._synchroStartedAt = Date.now();
     peerConnectionsRef.current.set(participantId, pc);
     return pc;
   }, [socket, roomId]);
@@ -660,15 +636,13 @@ export function useWebRTC(socket, roomId, localUserId) {
   // Start call with a specific participant (create offer)
   const startCallWithParticipant = useCallback(async (participantId) => {
     try {
-      const activeSocket = socketRef.current;
-      const activeRoomId = roomIdRef.current;
-      if (!activeSocket || !activeRoomId) {
+      if (!socket || !roomId) {
         throw new Error('Socket or room ID not available');
       }
 
       // Prevent creating peer connection with self
-      if (participantId === activeSocket.id) {
-        console.error(`❌ Cannot create peer connection with self: ${participantId} === ${activeSocket.id}`);
+      if (participantId === socket.id) {
+        console.error(`❌ Cannot create peer connection with self: ${participantId} === ${socket.id}`);
         return;
       }
 
@@ -694,15 +668,15 @@ export function useWebRTC(socket, roomId, localUserId) {
 
       // Create and send offer
       console.log(`📤 Creating and sending offer to ${participantId}...`);
-      console.log('📤 Room ID:', activeRoomId);
+      console.log('📤 Room ID:', roomId);
       const offer = await createOffer(pc);
       console.log('📤 Offer created, type:', offer.type);
-      activeSocket.emit('offer', {
+      socket.emit('offer', {
         offer,
-        roomId: activeRoomId,
-        targetId: participantId,
+        roomId,
+        targetId: participantId, // Send to specific participant
       });
-      console.log(`✅ Offer sent to ${participantId} in room:`, activeRoomId);
+      console.log(`✅ Offer sent to ${participantId} in room:`, roomId);
 
       // Update connection state
       setConnectionStates(prev => {
@@ -753,76 +727,90 @@ export function useWebRTC(socket, roomId, localUserId) {
       let pc = peerConnectionsRef.current.get(from);
       
       if (pc) {
-        const iceStuck =
-          pc.iceConnectionState === 'new' ||
-          pc.iceConnectionState === 'failed' ||
-          pc.iceConnectionState === 'disconnected';
-        const inGlare =
-          pc.signalingState === 'have-local-offer' &&
-          pc.localDescription?.type === 'offer';
-
-        if (inGlare) {
-          console.log(`🔄 Simultaneous offer detected with ${from}`);
-          const isPolite = String(socket.id) > String(from);
-          if (!isPolite) {
-            console.log(`ℹ️ Ignoring glare offer from ${from} (keeping our local offer)`);
-            if (pc.localDescription?.type === 'offer') {
-              socketRef.current?.emit('offer', {
-                offer: pc.localDescription,
-                roomId: roomIdRef.current,
-                targetId: from,
-              });
-            }
+        // We already have a peer connection
+        if (pc.localDescription && pc.localDescription.type === 'offer') {
+          // We already sent an offer to this participant
+          // This is a "simultaneous offer" scenario - we should handle it by
+          // setting the remote description and creating an answer
+          // This will replace our local offer with an answer
+          console.log(`🔄 Simultaneous offer detected with ${from}. Setting remote description and creating answer...`);
+          
+          try {
+            // Set the remote description (their offer)
+            await setRemoteDescriptionUtil(pc, offer);
+            console.log(`✅ Set remote description from ${from}'s offer`);
+            
+            // Create answer (this will replace our local offer)
+            const answer = await createAnswerUtil(pc, offer);
+            console.log(`✅ Created answer to ${from}'s offer`);
+            
+            // Send the answer
+            socket.emit('answer', {
+              answer,
+              roomId,
+              targetId: from,
+            });
+            console.log(`✅ Answer sent to ${from}`);
+            
+            // Process queued ICE candidates
+            await processIceCandidateQueue(from);
+            
+            return; // Done handling simultaneous offer
+          } catch (err) {
+            console.error(`❌ Error handling simultaneous offer from ${from}:`, err);
+            // If this fails, we might need to recreate the connection
+            // But for now, just log the error
             return;
           }
-          // Polite peer: drop our half-open PC and answer cleanly (rollback is unreliable).
-          console.log(`♻️ Polite peer recreating PC to answer glare offer from ${from}`);
-          try { pc.close(); } catch { /* ignore */ }
-          peerConnectionsRef.current.delete(from);
-          iceCandidateQueuesRef.current.delete(from);
-          pc = null;
-        } else if (pc.signalingState === 'stable' && pc.remoteDescription && iceStuck) {
-          console.log(`♻️ Recreating stuck PC to answer recovery offer from ${from}`);
-          try { pc.close(); } catch { /* ignore */ }
-          peerConnectionsRef.current.delete(from);
-          iceCandidateQueuesRef.current.delete(from);
-          pc = null;
-        } else if (pc.signalingState === 'stable' && pc.remoteDescription && !iceStuck) {
-          console.log(`ℹ️ Ignoring duplicate offer from ${from} (already connected)`);
+        } else if (pc.remoteDescription) {
+          // We already have a remote description, ignore duplicate offer
+          console.log(`⚠️ Already have remote description from ${from}, ignoring duplicate offer`);
           return;
-        } else if (!pc.remoteDescription && pc.signalingState === 'stable') {
+        } else {
+          // We have a peer connection but no descriptions yet - use it
           console.log(`✅ Reusing existing peer connection with ${from}`);
-        } else if (pc.signalingState === 'have-local-offer') {
-          console.log(`♻️ Recreating PC stuck in have-local-offer to answer ${from}`);
-          try { pc.close(); } catch { /* ignore */ }
-          peerConnectionsRef.current.delete(from);
-          iceCandidateQueuesRef.current.delete(from);
-          pc = null;
         }
-      }
-
-      if (!pc) {
+      } else {
+        // No peer connection exists, create one
         if (!localStreamRef.current) {
           await initializeLocalStream();
         }
+
+        // Create peer connection for this participant
         pc = await createPeerConnectionInstance(from);
-        console.log(`✅ Created peer connection to answer offer from ${from}`);
+        console.log(`✅ Created new peer connection for offer from ${from}`);
+
         if (localStreamRef.current) {
           addStreamToPeerConnection(pc, localStreamRef.current);
+          console.log(`✅ Added local stream to peer connection for ${from}`);
         }
       }
 
+      // createAnswer will set the remote description
       console.log(`📤 Creating answer to offer from: ${from}`);
+      console.log('📤 Offer details:', {
+        type: offer?.type,
+        sdp: offer?.sdp?.substring(0, 100) + '...',
+      });
+      
       const answer = await createAnswerUtil(pc, offer);
-      console.log(`✅ Answer created for ${from}`);
+      console.log(`✅ Answer created for ${from}, remote description set`);
+      console.log('📤 Answer details:', {
+        type: answer?.type,
+        sdp: answer?.sdp?.substring(0, 100) + '...',
+      });
+      
+      // Process any queued ICE candidates now that remote description is set
       await processIceCandidateQueue(from);
-
-      socketRef.current?.emit('answer', {
+      
+      console.log(`📤 Sending answer to: ${from}`);
+      console.log('📤 Room ID:', roomId);
+      socket.emit('answer', {
         answer,
-        roomId: roomIdRef.current,
+        roomId,
         targetId: from,
       });
-      console.log(`✅ Answer sent to ${from} in room:`, roomIdRef.current);
+      console.log(`✅ Answer sent to ${from} in room:`, roomId);
 
       // Send initial media state
       if (socket && roomId && localStreamRef.current) {
@@ -850,67 +838,33 @@ export function useWebRTC(socket, roomId, localUserId) {
   // Handle incoming answer
   const handleAnswer = useCallback(async (answer, from) => {
     try {
-      let pc = peerConnectionsRef.current.get(from);
+      const pc = peerConnectionsRef.current.get(from);
       if (!pc) {
-        // Answer arrived before our local offer finished creating the PC — wait briefly.
-        console.log(`⏳ No peer connection yet for ${from}, waiting for local PC...`);
-        for (let i = 0; i < 10 && !pc; i += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          pc = peerConnectionsRef.current.get(from);
-        }
-        if (!pc) {
-          console.log(`⚠️ Still no peer connection for ${from}, dropping answer`);
-          return;
-        }
+        console.log(`⚠️ No peer connection yet for ${from}, cannot handle answer`);
+        return;
       }
       
       // Check the signaling state - we can only set an answer when we have a local offer
       const signalingState = pc.signalingState;
       console.log(`📥 Received answer from ${from}, current signaling state: ${signalingState}`);
       
-      // Only process answer if we're in the correct state
       if (signalingState !== 'have-local-offer') {
-        if (pc.remoteDescription) {
-          // Check if it's the same answer (same SDP)
-          const existingSDP = pc.remoteDescription.sdp;
-          const newSDP = answer.sdp;
-          
-          if (existingSDP === newSDP) {
-            console.log(`⚠️ Duplicate answer received from ${from} (same SDP), ignoring`);
-            return;
-          } else {
-            console.log(`⚠️ Answer received in wrong state (${signalingState}), already have remote description. Ignoring.`);
-            return;
-          }
-        } else {
-          console.log(`⚠️ Answer received in wrong state (${signalingState}), no local offer. Ignoring.`);
+        if (pc.remoteDescription?.sdp === answer?.sdp) {
+          console.log(`⚠️ Duplicate answer from ${from}, ignoring`);
           return;
         }
+        console.log(`⚠️ Answer received in wrong state (${signalingState}), ignoring`);
+        return;
       }
-      
-      // Check if we already have a remote description (shouldn't happen in have-local-offer, but check anyway)
-      if (pc.remoteDescription) {
-        const existingSDP = pc.remoteDescription.sdp;
-        const newSDP = answer.sdp;
-        
-        if (existingSDP === newSDP) {
-          console.log(`⚠️ Duplicate answer received from ${from} (same SDP), ignoring`);
-          return;
-        } else {
-          console.log(`⚠️ Already have remote description, but different SDP. This shouldn't happen in have-local-offer state.`);
-          // Don't try to update - this would cause InvalidStateError
-          return;
-        }
+
+      if (pc.remoteDescription?.sdp === answer?.sdp) {
+        console.log(`⚠️ Duplicate answer from ${from}, ignoring`);
+        return;
       }
 
       console.log(`📥 Setting remote description from answer from ${from}...`);
-      console.log(`📥 Answer SDP (first 200 chars):`, answer.sdp?.substring(0, 200));
-      // Chrome always sets SDP o= to 127.0.0.1; that is normal and not a NAT failure.
-
       await setRemoteDescription(pc, answer);
       console.log(`✅ Remote description set for ${from}, processing queued ICE candidates`);
-      
-      // Process any queued ICE candidates now that remote description is set
       await processIceCandidateQueue(from);
     } catch (err) {
       console.error(`Error handling answer from ${from}:`, err);
@@ -1137,14 +1091,6 @@ export function useWebRTC(socket, roomId, localUserId) {
     }
   }, [socket, roomId, startCallWithParticipant]);
 
-  // Close a stuck peer connection and optionally create a fresh offer.
-  const restartPeerConnection = useCallback(async (participantId, { offer = true } = {}) => {
-    console.warn(`♻️ Restarting peer connection with ${participantId} (offer=${offer})`);
-    removeParticipant(participantId);
-    if (!offer) return;
-    await startCallWithParticipant(participantId);
-  }, [removeParticipant, startCallWithParticipant]);
-
   // Update remote media state for a specific participant
   const updateRemoteMediaState = useCallback((participantId, videoEnabled, audioEnabled) => {
     setRemoteMediaStates(prev => {
@@ -1234,40 +1180,12 @@ export function useWebRTC(socket, roomId, localUserId) {
     // Run verification every 2 seconds for faster recovery
     const verificationInterval = setInterval(() => {
       verifyAndFixStreams();
-
-      // Recover only when negotiation truly failed — never while remote video is live.
-      peerConnectionsRef.current.forEach((pc, participantId) => {
-        const receiversHaveLiveVideo = pc
-          .getReceivers()
-          .some((r) => r.track?.kind === 'video' && r.track.readyState === 'live');
-        if (receiversHaveLiveVideo) return;
-
-        const waitingForAnswer =
-          pc.signalingState === 'have-local-offer' && pc.iceConnectionState === 'new';
-        const iceFailed =
-          pc.iceConnectionState === 'failed' || pc.connectionState === 'failed';
-
-        if (!waitingForAnswer && !iceFailed) return;
-
-        const startedAt = pc._synchroStartedAt || (pc._synchroStartedAt = Date.now());
-        if (Date.now() - startedAt < 8000) return;
-        if (pc._synchroRestarting) return;
-        pc._synchroRestarting = true;
-
-        const shouldOffer = String(socket.id) < String(participantId);
-        console.warn(
-          `⚠️ Peer ${participantId} stuck at connection=${pc.connectionState} ice=${pc.iceConnectionState} signaling=${pc.signalingState} — recovering`
-        );
-        restartPeerConnection(participantId, { offer: shouldOffer }).catch((err) => {
-          console.error(`❌ Failed to recover peer ${participantId}:`, err);
-        });
-      });
     }, 2000);
     
     return () => {
       clearInterval(verificationInterval);
     };
-  }, [socket, roomId, verifyAndFixStreams, restartPeerConnection]);
+  }, [socket, roomId, verifyAndFixStreams]);
   
   // Also verify when connection states change
   useEffect(() => {
@@ -1296,7 +1214,6 @@ export function useWebRTC(socket, roomId, localUserId) {
     removeParticipant,
     initializeLocalStream,
     resendOffer,
-    restartPeerConnection,
     updateRemoteMediaState,
     getPeerConnections, // Expose for checking existing connections
   };

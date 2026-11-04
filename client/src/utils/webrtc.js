@@ -41,35 +41,14 @@ function buildSelfHostedTurnIceServer(credentials) {
   };
 }
 
-function normalizeIceServerEntry(server) {
-  if (!server) return null;
-  const urls = [].concat(server.urls || server.url || []).filter(Boolean);
-  if (!urls.length) return null;
-  const entry = { urls };
-  if (server.username) entry.username = server.username;
-  if (server.credential) entry.credential = server.credential;
-  return entry;
-}
-
 function normalizeIceServersFromProvider(payload) {
-  const raw = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.iceServers)
-      ? payload.iceServers
-      : null;
-  if (!raw) return null;
-  return raw.map(normalizeIceServerEntry).filter(Boolean);
-}
-
-function sortIceServers(servers) {
-  // Prefer TURN/TURNS first so cross-laptop / Wi‑Fi isolation paths get relay candidates.
-  const score = (server) => {
-    const urls = [].concat(server.urls || []).map(String);
-    if (urls.some((u) => u.startsWith('turns:'))) return 0;
-    if (urls.some((u) => u.startsWith('turn:'))) return 1;
-    return 2;
-  };
-  return [...servers].sort((a, b) => score(a) - score(b));
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.iceServers)) {
+    return payload.iceServers;
+  }
+  return null;
 }
 
 export async function getIceServers() {
@@ -83,18 +62,11 @@ export async function getIceServers() {
       const providerIceServers = normalizeIceServersFromProvider(payload);
 
       if (providerIceServers && providerIceServers.length > 0) {
-        // Keep Google STUN as extra fallback alongside Metered.
-        cachedIceServers = sortIceServers([...providerIceServers, ...STUN_SERVERS]);
+        cachedIceServers = providerIceServers;
       } else {
         const turnServer = buildSelfHostedTurnIceServer(payload);
-        cachedIceServers = turnServer
-          ? sortIceServers([turnServer, ...STUN_SERVERS])
-          : [...STUN_SERVERS];
+        cachedIceServers = turnServer ? [STUN_SERVERS[0], turnServer] : [...STUN_SERVERS];
       }
-      const hasTurn = cachedIceServers.some((server) =>
-        [].concat(server.urls || []).some((url) => String(url).startsWith('turn'))
-      );
-      console.log(`🌐 ICE servers ready (provider=${payload?.provider || 'unknown'}, turn=${hasTurn ? 'yes' : 'no'}, count=${cachedIceServers.length})`);
     } catch (error) {
       console.error('Failed to fetch TURN credentials, using STUN fallback:', error);
       cachedIceServers = [...STUN_SERVERS];
@@ -112,56 +84,7 @@ export async function getRTCConfig() {
     iceServers,
     iceCandidatePoolSize: 16,
     bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require',
-    iceTransportPolicy: 'all',
   };
-}
-
-/**
- * Wait until ICE gathering finishes, or until we have a TURN relay candidate,
- * or timeout. Relay often arrives after host/srflx — a short timeout caused
- * cross-laptop calls to miss relay and stay stuck in ICE "checking".
- */
-function waitForIceGatheringComplete(peerConnection, timeoutMs = 10000) {
-  if (peerConnection.iceGatheringState === 'complete') {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (reason) => {
-      if (settled) return;
-      settled = true;
-      peerConnection.removeEventListener('icegatheringstatechange', onChange);
-      peerConnection.removeEventListener('icecandidate', onCandidate);
-      clearTimeout(timer);
-      const sdp = peerConnection.localDescription?.sdp || '';
-      const hasRelay = sdp.includes(' typ relay ');
-      console.log(`🧊 ICE gather wait done (${reason}), relay=${hasRelay ? 'yes' : 'no'}`);
-      if (!hasRelay) {
-        console.warn('⚠️ No TURN relay candidates gathered — other networks/laptops may fail to connect');
-      }
-      resolve();
-    };
-
-    const onChange = () => {
-      if (peerConnection.iceGatheringState === 'complete') finish('complete');
-    };
-
-    const onCandidate = (event) => {
-      const c = event.candidate;
-      if (!c) return;
-      const typ = c.type || (c.candidate && c.candidate.split(' ')[7]) || '';
-      if (typ === 'relay') {
-        // Give a short moment for sibling relay candidates, then continue.
-        setTimeout(() => finish('relay-ready'), 500);
-      }
-    };
-
-    const timer = setTimeout(() => finish('timeout'), timeoutMs);
-    peerConnection.addEventListener('icegatheringstatechange', onChange);
-    peerConnection.addEventListener('icecandidate', onCandidate);
-  });
 }
 
 /**
@@ -287,18 +210,9 @@ export function addStreamToPeerConnection(peerConnection, stream) {
  */
 export async function createOffer(peerConnection) {
   try {
-    const offer = await peerConnection.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    });
+    const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-    await waitForIceGatheringComplete(peerConnection);
-    const finalOffer = peerConnection.localDescription;
-    const sdp = finalOffer?.sdp || '';
-    const candidateCount = sdp.split('\na=candidate:').length - 1;
-    const relayCount = (sdp.match(/ typ relay /g) || []).length;
-    console.log(`📤 Offer ready with ${candidateCount} inline ICE candidate(s) (relay=${relayCount})`);
-    return finalOffer;
+    return offer;
   } catch (error) {
     console.error('Error creating offer:', error);
     throw error;
@@ -313,13 +227,7 @@ export async function createAnswer(peerConnection, offer) {
     await peerConnection.setRemoteDescription(offer);
     const answer = await peerConnection.createAnswer();
     await peerConnection.setLocalDescription(answer);
-    await waitForIceGatheringComplete(peerConnection);
-    const finalAnswer = peerConnection.localDescription;
-    const sdp = finalAnswer?.sdp || '';
-    const candidateCount = sdp.split('\na=candidate:').length - 1;
-    const relayCount = (sdp.match(/ typ relay /g) || []).length;
-    console.log(`📤 Answer ready with ${candidateCount} inline ICE candidate(s) (relay=${relayCount})`);
-    return finalAnswer;
+    return answer;
   } catch (error) {
     console.error('Error creating answer:', error);
     throw error;
@@ -343,12 +251,9 @@ export async function setRemoteDescription(peerConnection, description) {
  */
 export async function addIceCandidate(peerConnection, candidate) {
   try {
-    if (!candidate) return;
-    const init =
-      candidate instanceof RTCIceCandidate
-        ? candidate
-        : new RTCIceCandidate(candidate);
-    await peerConnection.addIceCandidate(init);
+    if (candidate) {
+      await peerConnection.addIceCandidate(candidate);
+    }
   } catch (error) {
     console.error('Error adding ICE candidate:', error);
     throw error;
