@@ -11,10 +11,9 @@ import {
 } from '@/utils/webrtc';
 
 // Import these functions directly for use in callbacks
-import { 
-  createAnswer as createAnswerUtil, 
-  setRemoteDescription as setRemoteDescriptionUtil,
-  createOffer as createOfferUtil
+import {
+  createAnswer as createAnswerUtil,
+  createOffer as createOfferUtil,
 } from '@/utils/webrtc';
 
 export function useWebRTC(socket, roomId, localUserId) {
@@ -727,48 +726,37 @@ export function useWebRTC(socket, roomId, localUserId) {
       let pc = peerConnectionsRef.current.get(from);
       
       if (pc) {
-        // We already have a peer connection
-        if (pc.localDescription && pc.localDescription.type === 'offer') {
-          // We already sent an offer to this participant
-          // This is a "simultaneous offer" scenario - we should handle it by
-          // setting the remote description and creating an answer
-          // This will replace our local offer with an answer
-          console.log(`🔄 Simultaneous offer detected with ${from}. Setting remote description and creating answer...`);
-          
-          try {
-            // Set the remote description (their offer)
-            await setRemoteDescriptionUtil(pc, offer);
-            console.log(`✅ Set remote description from ${from}'s offer`);
-            
-            // Create answer (this will replace our local offer)
-            const answer = await createAnswerUtil(pc, offer);
-            console.log(`✅ Created answer to ${from}'s offer`);
-            
-            // Send the answer
-            socket.emit('answer', {
-              answer,
-              roomId,
-              targetId: from,
-            });
-            console.log(`✅ Answer sent to ${from}`);
-            
-            // Process queued ICE candidates
-            await processIceCandidateQueue(from);
-            
-            return; // Done handling simultaneous offer
-          } catch (err) {
-            console.error(`❌ Error handling simultaneous offer from ${from}:`, err);
-            // If this fails, we might need to recreate the connection
-            // But for now, just log the error
+        // Perfect negotiation: polite peer (lower socket id) yields on glare
+        if (pc.signalingState === 'have-local-offer') {
+          const polite = socket.id < from;
+          if (!polite) {
+            console.log(`⚔️ Glare with ${from}: keeping our offer (impolite), ignoring theirs`);
             return;
           }
-        } else if (pc.remoteDescription) {
-          // We already have a remote description, ignore duplicate offer
-          console.log(`⚠️ Already have remote description from ${from}, ignoring duplicate offer`);
+
+          console.log(`⚔️ Glare with ${from}: rolling back our offer (polite) and answering theirs`);
+          try {
+            await pc.setLocalDescription({ type: 'rollback' });
+          } catch (rollbackErr) {
+            console.warn(`⚠️ Rollback failed for ${from}, recreating peer connection:`, rollbackErr);
+            try {
+              pc.close();
+            } catch {
+              /* ignore */
+            }
+            peerConnectionsRef.current.delete(from);
+            iceCandidateQueuesRef.current.set(from, []);
+            pc = await createPeerConnectionInstance(from);
+            if (localStreamRef.current) {
+              addStreamToPeerConnection(pc, localStreamRef.current);
+            }
+          }
+        } else if (pc.remoteDescription && pc.signalingState === 'stable') {
+          // Already negotiated — ignore duplicate offer unless this is a renegotiation
+          console.log(`⚠️ Already stable with ${from}, ignoring duplicate offer`);
           return;
         } else {
-          // We have a peer connection but no descriptions yet - use it
-          console.log(`✅ Reusing existing peer connection with ${from}`);
+          console.log(`✅ Reusing existing peer connection with ${from} (state: ${pc.signalingState})`);
         }
       } else {
         // No peer connection exists, create one

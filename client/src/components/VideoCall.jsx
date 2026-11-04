@@ -516,18 +516,20 @@ export function VideoCall() {
         });
       }
       
-      // Safety net: create any missing peer connections (same as previously working logic)
+      // Safety net: only ONE side may create the offer per pair (higher socket id),
+      // otherwise both peers offer → answer arrives in stable → connection fails.
       if (hasJoinedRoom && otherParticipants && otherParticipants.length > 0) {
         setTimeout(() => {
           const peerConnections = getPeerConnections();
           const missingConnections = otherParticipants.filter(
             (participantId) =>
               participantId !== socket.id &&
-              !peerConnections.has(participantId)
+              !peerConnections.has(participantId) &&
+              socket.id > participantId
           );
 
           if (missingConnections.length > 0) {
-            console.log(`⚠️ Missing ${missingConnections.length} peer connection(s):`, missingConnections);
+            console.log(`⚠️ Missing ${missingConnections.length} peer connection(s) (we are offerer):`, missingConnections);
             (async () => {
               for (const participantId of missingConnections) {
                 try {
@@ -570,24 +572,11 @@ export function VideoCall() {
         clearTimeout(offerTimeoutRef.current);
         offerTimeoutRef.current = null;
       }
-      
-      // Previously working behavior: new joiner also creates offers to existing peers.
+
+      // New joiner must NOT also create offers — existing peers offer via user-joined.
+      // Dual offers caused: "Answer received in wrong state (stable), ignoring".
       if (participantCount > 1 && otherParticipants && otherParticipants.length > 0) {
-        console.log('👥 Other participants already in room:', otherParticipants);
-        offerTimeoutRef.current = setTimeout(() => {
-          (async () => {
-            for (const participantId of otherParticipants) {
-              if (participantId === socket.id) continue;
-              const peerConnections = getPeerConnections();
-              if (!peerConnections.has(participantId)) {
-                console.log(`📞 Creating connection with ${participantId}...`);
-                await startCallWithParticipant(participantId);
-                await new Promise((resolve) => setTimeout(resolve, 200));
-              }
-            }
-          })();
-          offerTimeoutRef.current = null;
-        }, 1000);
+        console.log('👥 Other participants already in room — waiting for their offers:', otherParticipants);
       } else {
         console.log('👤 First participant, waiting for another participant to join...');
       }
