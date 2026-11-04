@@ -129,6 +129,7 @@ export function VideoCall() {
     initializeLocalStream,
     updateRemoteMediaState,
     getPeerConnections, // Get peer connections map
+    removeParticipant,
   } = useWebRTC(socket, roomId, localUserId);
 
   // Normalize room ID (trim and lowercase for consistency)
@@ -559,19 +560,25 @@ export function VideoCall() {
                 videoTracks: videoTracks.length,
               });
 
-              // Stuck before ICE starts: resend or restart instead of logging forever.
+              // Stuck with SDP set but ICE never starts, or waiting for answer.
               if (
-                pc.connectionState === 'new' &&
                 pc.iceConnectionState === 'new' &&
-                pc.signalingState === 'have-local-offer' &&
-                pc.localDescription
+                (pc.connectionState === 'new' || pc.connectionState === 'connecting')
               ) {
-                console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
-                socket.emit('offer', {
-                  offer: pc.localDescription,
-                  roomId,
-                  targetId: participantId,
-                });
+                if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+                  console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
+                  socket.emit('offer', {
+                    offer: pc.localDescription,
+                    roomId,
+                    targetId: participantId,
+                  });
+                } else if (pc.signalingState === 'stable' && String(socket.id) < String(participantId)) {
+                  console.warn(`♻️ Peer ${participantId} stable but ICE still new — restarting`);
+                  removeParticipant(participantId);
+                  startCallWithParticipant(participantId).catch((err) => {
+                    console.error(`❌ Restart offer failed for ${participantId}:`, err);
+                  });
+                }
               }
             });
           }
@@ -755,7 +762,7 @@ export function VideoCall() {
       socket.off('screen-share:stopped');
       clearInterval(periodicCheckInterval);
     };
-  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall, updateRemoteMediaState]);
+  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, removeParticipant, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall, updateRemoteMediaState]);
 
   // Display errors
   useEffect(() => {
