@@ -560,25 +560,19 @@ export function VideoCall() {
                 videoTracks: videoTracks.length,
               });
 
-              // Stuck with SDP set but ICE never starts, or waiting for answer.
+              // Only resend offer while waiting for answer. Do NOT tear down a stable
+              // PC here — recovery that kills live tracks causes endless reconnect loops.
               if (
-                pc.iceConnectionState === 'new' &&
-                (pc.connectionState === 'new' || pc.connectionState === 'connecting')
+                pc.signalingState === 'have-local-offer' &&
+                pc.localDescription &&
+                pc.iceConnectionState === 'new'
               ) {
-                if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
-                  console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
-                  socket.emit('offer', {
-                    offer: pc.localDescription,
-                    roomId,
-                    targetId: participantId,
-                  });
-                } else if (pc.signalingState === 'stable' && String(socket.id) < String(participantId)) {
-                  console.warn(`♻️ Peer ${participantId} stable but ICE still new — restarting`);
-                  removeParticipant(participantId);
-                  startCallWithParticipant(participantId).catch((err) => {
-                    console.error(`❌ Restart offer failed for ${participantId}:`, err);
-                  });
-                }
+                console.warn(`📤 Peer ${participantId} still waiting for answer — resending offer`);
+                socket.emit('offer', {
+                  offer: pc.localDescription,
+                  roomId,
+                  targetId: participantId,
+                });
               }
             });
           }

@@ -1223,24 +1223,22 @@ export function useWebRTC(socket, roomId, localUserId) {
     const verificationInterval = setInterval(() => {
       verifyAndFixStreams();
 
-      // Recover peers where SDP is done but ICE never starts (missing candidates),
-      // or offer was never answered. Lower socket id re-offers to avoid glare.
+      // Recover only when negotiation truly failed — never while remote video is live.
       peerConnectionsRef.current.forEach((pc, participantId) => {
-        const iceStuck =
-          pc.iceConnectionState === 'new' ||
-          pc.iceConnectionState === 'failed' ||
-          pc.iceConnectionState === 'disconnected';
-        const stuck =
-          iceStuck &&
-          (pc.connectionState === 'new' ||
-            pc.connectionState === 'connecting' ||
-            pc.connectionState === 'failed' ||
-            pc.connectionState === 'disconnected');
+        const receiversHaveLiveVideo = pc
+          .getReceivers()
+          .some((r) => r.track?.kind === 'video' && r.track.readyState === 'live');
+        if (receiversHaveLiveVideo) return;
 
-        if (!stuck) return;
+        const waitingForAnswer =
+          pc.signalingState === 'have-local-offer' && pc.iceConnectionState === 'new';
+        const iceFailed =
+          pc.iceConnectionState === 'failed' || pc.connectionState === 'failed';
+
+        if (!waitingForAnswer && !iceFailed) return;
 
         const startedAt = pc._synchroStartedAt || (pc._synchroStartedAt = Date.now());
-        if (Date.now() - startedAt < 4000) return;
+        if (Date.now() - startedAt < 8000) return;
         if (pc._synchroRestarting) return;
         pc._synchroRestarting = true;
 
