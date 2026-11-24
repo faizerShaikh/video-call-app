@@ -46,6 +46,7 @@ export function HomeScreen({
   onJoinRoom,
 }) {
   const [view, setView] = useState('home');
+  const [activeTab, setActiveTab] = useState('quick'); // quick | join | schedule
   const [roomCode, setRoomCode] = useState(() => makeCode());
   const [joinValue, setJoinValue] = useState('');
   const [waitingRoom, setWaitingRoom] = useState(true);
@@ -55,6 +56,17 @@ export function HomeScreen({
   const [copied, setCopied] = useState(false);
   const [calendar, setCalendar] = useState('Outlook');
   const [hostApproval, setHostApproval] = useState(true);
+
+  const HOME_TABS = [
+    { id: 'quick', label: 'Quick link' },
+    { id: 'join', label: 'Join with a room ID' },
+    { id: 'schedule', label: 'Schedule a meeting' },
+  ];
+
+  const openHomeTab = (tab) => {
+    setActiveTab(tab);
+    setView('home');
+  };
   const [searchParams, setSearchParams] = useSearchParams();
   const [googleAccount, setGoogleAccount] = useState({ connected: false, email: null });
   const [outlookAccount, setOutlookAccount] = useState({ connected: false, email: null });
@@ -261,7 +273,7 @@ export function HomeScreen({
             </p>
           </div>
           <div className="hidden gap-2.5 sm:flex">
-            <button type="button" onClick={() => document.getElementById('schedule')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="inline-flex h-[46px] items-center rounded-[10px] border border-[#E6EBED] bg-white px-5 text-[15px] font-semibold hover:border-[#C9D3D6]">
+            <button type="button" onClick={() => openHomeTab('schedule')} className="inline-flex h-[46px] items-center rounded-[10px] border border-[#E6EBED] bg-white px-5 text-[15px] font-semibold hover:border-[#C9D3D6]">
               Schedule
             </button>
             <button type="button" onClick={startMeeting} className="inline-flex h-[46px] items-center rounded-[10px] bg-[#1C6E6E] px-5 text-[15px] font-semibold text-white hover:bg-[#155858]">
@@ -273,7 +285,7 @@ export function HomeScreen({
               <button type="button" onClick={startMeeting} className="inline-flex h-[52px] items-center justify-center rounded-[10px] bg-[#1C6E6E] px-4 text-[15px] font-semibold text-white">
                 Start meeting
               </button>
-              <button type="button" onClick={() => setView('schedule')} className="inline-flex h-[52px] items-center justify-center rounded-[10px] border border-[#E6EBED] bg-white px-4 text-[15px] font-semibold">
+              <button type="button" onClick={() => openHomeTab('schedule')} className="inline-flex h-[52px] items-center justify-center rounded-[10px] border border-[#E6EBED] bg-white px-4 text-[15px] font-semibold">
                 Schedule
               </button>
             </div>
@@ -288,8 +300,32 @@ export function HomeScreen({
 
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:gap-[72px]">
           <div>
+            {view === 'home' && (
+              <div
+                role="tablist"
+                aria-label="Meeting actions"
+                className="mb-8 inline-flex w-full flex-col rounded-[10px] border border-[#E6EBED] p-[3px] sm:w-auto sm:flex-row"
+              >
+                {HOME_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`h-[42px] rounded-[7px] px-4 text-sm font-semibold transition-colors sm:h-[38px] ${
+                      activeTab === tab.id ? 'bg-[#0F2A44] text-white' : 'text-[#6B7A84] hover:text-[#0F2A44]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className={view === 'home' ? 'block' : 'hidden lg:block'}>
-                <section className="mb-10 border-b border-[#E6EBED] pb-10">
+              {activeTab === 'quick' && (
+                <section>
                   <div className="mb-[18px] flex items-center justify-between">
                     <h2 className="m-0 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#6B7A84]">Quick link</h2>
                     <button
@@ -349,7 +385,9 @@ export function HomeScreen({
                     <button type="button" onClick={openGoogle} className="h-10 border-0 bg-transparent px-1 text-[15px] font-semibold text-[#1C6E6E]">Add to Google Calendar</button>
                   </div>
                 </section>
+              )}
 
+              {activeTab === 'join' && (
                 <section>
                   <div className="mb-[18px]">
                     <h2 className="m-0 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#6B7A84]">Join with a room ID</h2>
@@ -372,69 +410,71 @@ export function HomeScreen({
                     </button>
                   </form>
                 </section>
-              </div>
+              )}
 
-            <section id="schedule" className={`scroll-mt-24 border-t border-[#E6EBED] pt-10 ${view === 'schedule' ? 'block' : 'hidden lg:block'}`}>
-                <div className="mb-[18px] flex items-center justify-between">
-                  <h2 className="m-0 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#6B7A84]">Schedule a meeting</h2>
-                  <button type="button" onClick={() => setView('home')} className="text-sm font-semibold text-[#1C6E6E] lg:hidden">Back</button>
-                </div>
-                <form
-                  className="grid grid-cols-2 gap-4 lg:grid-cols-4"
-                  onSubmit={scheduleMeeting}
-                >
-                  <label className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
-                    <span className="text-[13px] font-medium text-[#6B7A84]">Title</span>
-                    <input value={scheduleForm.title} onChange={(e) => setScheduleForm((form) => ({ ...form, title: e.target.value }))} placeholder="Weekly project sync" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
-                  </label>
-                  <label className="col-span-2 flex flex-col gap-1.5">
-                    <span className="text-[13px] font-medium text-[#6B7A84]">Date</span>
-                    <input type="date" value={scheduleForm.date} onChange={(e) => setScheduleForm((form) => ({ ...form, date: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[13px] font-medium text-[#6B7A84]">Start</span>
-                    <input type="time" value={scheduleForm.start} onChange={(e) => setScheduleForm((form) => ({ ...form, start: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[13px] font-medium text-[#6B7A84]">Duration</span>
-                    <select value={scheduleForm.duration} onChange={(e) => setScheduleForm((form) => ({ ...form, duration: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] bg-white px-3.5 text-[15px]">
-                      <option>30 min</option>
-                      <option>45 min</option>
-                      <option>1 hour</option>
-                    </select>
-                  </label>
-                  <label className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
-                    <span className="text-[13px] font-medium text-[#6B7A84]">Invite</span>
-                    <input value={scheduleForm.invites} onChange={(e) => setScheduleForm((form) => ({ ...form, invites: e.target.value }))} placeholder="Add emails, separated by commas" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
-                  </label>
-                  <div className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
-                    <span className="text-[13px] font-medium text-[#6B7A84]">Add to calendar</span>
-                    <div className="inline-flex w-full rounded-[10px] border border-[#E6EBED] p-[3px] sm:w-auto">
-                      {['Outlook', 'Google', 'Both'].map((item) => (
-                        <button
-                          key={item}
-                          type="button"
-                          onClick={() => setCalendar(item)}
-                          className={`h-[38px] flex-1 rounded-[7px] px-4 text-sm font-medium sm:flex-none ${
-                            calendar === item ? 'bg-[#0F2A44] text-white' : 'text-[#6B7A84]'
-                          }`}
-                        >
-                          {item}
-                        </button>
-                      ))}
-                    </div>
+              {activeTab === 'schedule' && (
+                <section id="schedule">
+                  <div className="mb-[18px]">
+                    <h2 className="m-0 text-[13px] font-semibold uppercase tracking-[0.08em] text-[#6B7A84]">Schedule a meeting</h2>
                   </div>
-                  <div className="col-span-2 mt-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between lg:col-span-4">
-                    <label className="flex items-center gap-2.5 text-sm text-[#2B3A45]">
-                      <input type="checkbox" checked={hostApproval} onChange={(e) => setHostApproval(e.target.checked)} className="h-[18px] w-[18px] accent-[#1C6E6E]" />
-                      Host approves who joins
+                  <form
+                    className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+                    onSubmit={scheduleMeeting}
+                  >
+                    <label className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
+                      <span className="text-[13px] font-medium text-[#6B7A84]">Title</span>
+                      <input value={scheduleForm.title} onChange={(e) => setScheduleForm((form) => ({ ...form, title: e.target.value }))} placeholder="Weekly project sync" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
                     </label>
-                    <button type="submit" disabled={scheduling} className="inline-flex h-[46px] items-center justify-center rounded-[10px] bg-[#1C6E6E] px-5 text-[15px] font-semibold text-white hover:bg-[#155858] disabled:opacity-60">
-                      {scheduling ? 'Scheduling…' : 'Schedule & send invites'}
-                    </button>
-                  </div>
-                </form>
-              </section>
+                    <label className="col-span-2 flex flex-col gap-1.5">
+                      <span className="text-[13px] font-medium text-[#6B7A84]">Date</span>
+                      <input type="date" value={scheduleForm.date} onChange={(e) => setScheduleForm((form) => ({ ...form, date: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-[13px] font-medium text-[#6B7A84]">Start</span>
+                      <input type="time" value={scheduleForm.start} onChange={(e) => setScheduleForm((form) => ({ ...form, start: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px]" />
+                    </label>
+                    <label className="flex flex-col gap-1.5">
+                      <span className="text-[13px] font-medium text-[#6B7A84]">Duration</span>
+                      <select value={scheduleForm.duration} onChange={(e) => setScheduleForm((form) => ({ ...form, duration: e.target.value }))} className="h-[46px] rounded-[10px] border border-[#E6EBED] bg-white px-3.5 text-[15px]">
+                        <option>30 min</option>
+                        <option>45 min</option>
+                        <option>1 hour</option>
+                      </select>
+                    </label>
+                    <label className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
+                      <span className="text-[13px] font-medium text-[#6B7A84]">Invite</span>
+                      <input value={scheduleForm.invites} onChange={(e) => setScheduleForm((form) => ({ ...form, invites: e.target.value }))} placeholder="Add emails, separated by commas" className="h-[46px] rounded-[10px] border border-[#E6EBED] px-3.5 text-[15px] outline-none focus:outline focus:outline-2 focus:outline-[#1C6E6E]" />
+                    </label>
+                    <div className="col-span-2 flex flex-col gap-1.5 lg:col-span-4">
+                      <span className="text-[13px] font-medium text-[#6B7A84]">Add to calendar</span>
+                      <div className="inline-flex w-full rounded-[10px] border border-[#E6EBED] p-[3px] sm:w-auto">
+                        {['Outlook', 'Google', 'Both'].map((item) => (
+                          <button
+                            key={item}
+                            type="button"
+                            onClick={() => setCalendar(item)}
+                            className={`h-[38px] flex-1 rounded-[7px] px-4 text-sm font-medium sm:flex-none ${
+                              calendar === item ? 'bg-[#0F2A44] text-white' : 'text-[#6B7A84]'
+                            }`}
+                          >
+                            {item}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="col-span-2 mt-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between lg:col-span-4">
+                      <label className="flex items-center gap-2.5 text-sm text-[#2B3A45]">
+                        <input type="checkbox" checked={hostApproval} onChange={(e) => setHostApproval(e.target.checked)} className="h-[18px] w-[18px] accent-[#1C6E6E]" />
+                        Host approves who joins
+                      </label>
+                      <button type="submit" disabled={scheduling} className="inline-flex h-[46px] items-center justify-center rounded-[10px] bg-[#1C6E6E] px-5 text-[15px] font-semibold text-white hover:bg-[#155858] disabled:opacity-60">
+                        {scheduling ? 'Scheduling…' : 'Schedule & send invites'}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              )}
+            </div>
 
             {view === 'calendars' && (
               <section className="lg:hidden">
@@ -463,8 +503,8 @@ export function HomeScreen({
                   <div className="rounded-xl bg-[#EAF3F2] p-5">
                     <p className="text-sm font-medium text-[#2B3A45]">No meetings scheduled yet.</p>
                     <p className="mt-1 text-sm text-[#6B7A84]">Schedule a meeting to send calendar invites.</p>
-                    <button type="button" onClick={startMeeting} className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[10px] bg-[#1C6E6E] text-[15px] font-semibold text-white hover:bg-[#155858]">
-                      Start meeting
+                    <button type="button" onClick={() => openHomeTab('schedule')} className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[10px] bg-[#1C6E6E] text-[15px] font-semibold text-white hover:bg-[#155858]">
+                      Schedule a meeting
                     </button>
                   </div>
                 ) : (
@@ -522,9 +562,17 @@ export function HomeScreen({
           <button
             key={id}
             type="button"
-            onClick={() => setView(id)}
+            onClick={() => {
+              if (id === 'schedule') openHomeTab('schedule');
+              else if (id === 'home') openHomeTab(activeTab === 'schedule' ? 'quick' : activeTab);
+              else setView(id);
+            }}
             className={`flex min-h-[52px] flex-col items-center justify-center gap-1 text-[11px] font-semibold ${
-              view === id ? 'text-[#0F2A44]' : 'text-[#6B7A84]'
+              (id === 'home' && view === 'home' && activeTab !== 'schedule') ||
+              (id === 'schedule' && view === 'home' && activeTab === 'schedule') ||
+              (id === 'calendars' && view === 'calendars')
+                ? 'text-[#0F2A44]'
+                : 'text-[#6B7A84]'
             }`}
           >
             {label}
