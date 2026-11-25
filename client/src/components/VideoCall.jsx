@@ -127,6 +127,7 @@ export function VideoCall() {
     stopScreenShare,
     endCall,
     initializeLocalStream,
+    publishLocalMediaState,
     updateRemoteMediaState,
     getPeerConnections, // Get peer connections map
     removeParticipant,
@@ -468,7 +469,7 @@ export function VideoCall() {
           const peerConnections = getPeerConnections();
           if (!peerConnections.has(socketId)) {
             console.log(`📞 Creating peer connection with new participant ${socketId}...`);
-            startCallWithParticipant(socketId).catch(err => {
+            startCallWithParticipant(socketId, { allowRejoin: true }).catch(err => {
               console.error(`❌ Failed to create connection with ${socketId}:`, err);
             });
           } else {
@@ -484,14 +485,18 @@ export function VideoCall() {
       }
     });
 
-    // Handle user left
+    // Handle user left — tear down PC so ICE "failed" is not treated as an error
     socket.on('user-left', ({ socketId }) => {
       console.log('👋 User left:', socketId);
+      removeParticipant(socketId);
       setParticipantNames((prev) => {
         const next = new Map(prev);
         next.delete(socketId);
         return next;
       });
+      setError((prev) =>
+        prev && String(prev).includes(socketId) ? null : prev
+      );
     });
 
     // Handle room update
@@ -509,6 +514,22 @@ export function VideoCall() {
         });
       }
       
+      // Drop PCs for people no longer in the room (covers missed user-left)
+      if (hasJoinedRoom && Array.isArray(otherParticipants)) {
+        const stillHere = new Set(otherParticipants);
+        getPeerConnections().forEach((_pc, participantId) => {
+          if (!stillHere.has(participantId)) {
+            console.log(`🧹 Pruning peer who left the room: ${participantId}`);
+            removeParticipant(participantId);
+            setParticipantNames((prev) => {
+              const next = new Map(prev);
+              next.delete(participantId);
+              return next;
+            });
+          }
+        });
+      }
+
       // Ensure we have peer connections with all participants (safety net)
       if (hasJoinedRoom && otherParticipants && otherParticipants.length > 0) {
         console.log('🔍 Verifying peer connections with all participants...');
@@ -598,6 +619,11 @@ export function VideoCall() {
           return next;
         });
       }
+
+      // Align mute UI + tell peers the real track state (fixes Mic Off after rejoin)
+      setTimeout(() => {
+        publishLocalMediaState();
+      }, 300);
       
       // Reset offer received flag
       offerReceivedRef.current = false;
@@ -756,7 +782,7 @@ export function VideoCall() {
       socket.off('screen-share:stopped');
       clearInterval(periodicCheckInterval);
     };
-  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, removeParticipant, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall, updateRemoteMediaState]);
+  }, [socket, hasJoinedRoom, participantCount, roomId, handleOffer, handleAnswer, handleIceCandidate, startCallWithParticipant, getPeerConnections, removeParticipant, startScreenShare, stopScreenShare, isScreenSharing, user?._id, user?.id, user?.name, user?.email, localUserId, endCall, updateRemoteMediaState, publishLocalMediaState]);
 
   // Display errors
   useEffect(() => {
@@ -1109,24 +1135,19 @@ export function VideoCall() {
 
         {/* Video Grid - Dynamic based on participant count */}
         {(() => {
-          const totalParticipants = participantCount;
-          
-          // Get all known participant IDs from connection states and remote streams
-          const allKnownParticipantIds = new Set([
-            ...Array.from(connectionStates.keys()),
-            ...Array.from(remoteStreams.keys()),
-          ]);
-          
-          // Create participants array - include local + all known remote participants
-          // This ensures we show all participants even if they don't have streams yet
+          // Only people still in the room — never ghost tiles from stale connectionStates/remoteStreams
+          const remoteParticipantIds = Array.from(participantNames.keys()).filter(
+            (id) => id && id !== socket?.id
+          );
+
           const allParticipants = [
             { id: socket?.id || localUserId, stream: localStream, isLocal: true, displayName: 'You' },
-            ...Array.from(allKnownParticipantIds).map((id) => ({
+            ...remoteParticipantIds.map((id) => ({
               id,
-              stream: remoteStreams.get(id) || null, // null if no stream yet
+              stream: remoteStreams.get(id) || null,
               isLocal: false,
               displayName: participantNames.get(id) || `User-${id.substring(0, 6)}`,
-            }))
+            })),
           ];
           
           // Sort participants to ensure consistent ordering (local first, then by ID)
@@ -1135,6 +1156,8 @@ export function VideoCall() {
             if (b.isLocal) return 1;
             return a.id.localeCompare(b.id);
           });
+
+          const totalParticipants = allParticipants.length;
 
           // Calculate optimal grid layout based on participant count
           const calculateGridLayout = (count) => {
