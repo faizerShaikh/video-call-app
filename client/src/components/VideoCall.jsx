@@ -126,6 +126,7 @@ export function VideoCall() {
     startScreenShare,
     stopScreenShare,
     endCall,
+    removeParticipant,
     initializeLocalStream,
     publishLocalMediaState,
     updateRemoteMediaState,
