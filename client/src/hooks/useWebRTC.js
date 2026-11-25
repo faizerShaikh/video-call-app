@@ -38,15 +38,44 @@ export function useWebRTC(socket, roomId, localUserId) {
   const connectionAttemptsRef = useRef(new Map());
   // Connection timeouts: Map<socketId, timeoutId>
   const connectionTimeoutsRef = useRef(new Map());
+  // Peers that left on purpose — ignore late ICE "failed" / retry noise
+  const departedPeersRef = useRef(new Set());
   const screenStreamRef = useRef(null);
   const cameraTrackRef = useRef(null);
   const microphoneTrackRef = useRef(null);
   const screenAudioTrackRef = useRef(null);
+  const isScreenSharingRef = useRef(false);
+  const stopScreenShareRef = useRef(null);
+  // Always use latest socket/roomId inside PC event handlers (avoid stale closures).
   const socketRef = useRef(socket);
   const roomIdRef = useRef(roomId);
   const turnProbePromiseRef = useRef(null);
   socketRef.current = socket;
   roomIdRef.current = roomId;
+
+  // Push local track mute state to React UI + other peers
+  const publishLocalMediaState = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return null;
+
+    const videoEnabled = stream.getVideoTracks()[0]?.enabled ?? true;
+    const audioEnabled = stream.getAudioTracks()[0]?.enabled ?? true;
+    setIsVideoEnabled(videoEnabled);
+    setIsAudioEnabled(audioEnabled);
+
+    const activeSocket = socketRef.current;
+    const activeRoomId = roomIdRef.current;
+    if (activeSocket && activeRoomId) {
+      activeSocket.emit('media-state', {
+        roomId: activeRoomId,
+        videoEnabled,
+        audioEnabled,
+      });
+      console.log('📤 Published local media-state:', { videoEnabled, audioEnabled });
+    }
+
+    return { videoEnabled, audioEnabled };
+  }, []);
 
   // Initialize local stream
   const initializeLocalStream = useCallback(async () => {
@@ -54,6 +83,9 @@ export function useWebRTC(socket, roomId, localUserId) {
       const stream = await getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
       setLocalStream(stream);
+      // New getUserMedia tracks are enabled — sync UI (fixes mute badge stuck after rejoin)
+      setIsVideoEnabled(stream.getVideoTracks()[0]?.enabled ?? true);
+      setIsAudioEnabled(stream.getAudioTracks()[0]?.enabled ?? true);
       setError(null);
       return stream;
     } catch (err) {
@@ -85,15 +117,19 @@ export function useWebRTC(socket, roomId, localUserId) {
   }, []);
 
   const stopScreenShare = useCallback((reason = 'manual') => {
-    if (!isScreenSharing) return;
+    // Use ref — track.onended closes over an old callback where isScreenSharing was still false
+    const wasSharing = isScreenSharingRef.current || Boolean(screenStreamRef.current);
+    if (!wasSharing) return false;
+
+    isScreenSharingRef.current = false;
 
     const cameraTrack = cameraTrackRef.current;
     const microphoneTrack = microphoneTrackRef.current;
 
-    if (cameraTrack) {
+    if (cameraTrack && cameraTrack.readyState === 'live') {
       replaceOutgoingTrack('video', cameraTrack);
     }
-    if (microphoneTrack) {
+    if (microphoneTrack && microphoneTrack.readyState === 'live') {
       replaceOutgoingTrack('audio', microphoneTrack);
     }
 
@@ -102,13 +138,27 @@ export function useWebRTC(socket, roomId, localUserId) {
       const currentAudioTrack = localStreamRef.current.getAudioTracks()[0];
 
       if (currentVideoTrack && cameraTrack && currentVideoTrack.id !== cameraTrack.id) {
-        localStreamRef.current.removeTrack(currentVideoTrack);
-        localStreamRef.current.addTrack(cameraTrack);
+        try {
+          localStreamRef.current.removeTrack(currentVideoTrack);
+        } catch {
+          /* ignore */
+        }
+        if (cameraTrack.readyState === 'live') {
+          localStreamRef.current.addTrack(cameraTrack);
+        }
       }
 
-      if (screenAudioTrackRef.current && currentAudioTrack && currentAudioTrack.id === screenAudioTrackRef.current.id) {
-        localStreamRef.current.removeTrack(currentAudioTrack);
-        if (microphoneTrack) {
+      if (
+        screenAudioTrackRef.current &&
+        currentAudioTrack &&
+        currentAudioTrack.id === screenAudioTrackRef.current.id
+      ) {
+        try {
+          localStreamRef.current.removeTrack(currentAudioTrack);
+        } catch {
+          /* ignore */
+        }
+        if (microphoneTrack && microphoneTrack.readyState === 'live') {
           localStreamRef.current.addTrack(microphoneTrack);
         }
       }
@@ -122,8 +172,23 @@ export function useWebRTC(socket, roomId, localUserId) {
 
     screenAudioTrackRef.current = null;
     setIsScreenSharing(false);
+
+    // Browser ribbon stop must notify peers even if React effect is late
+    const activeSocket = socketRef.current;
+    const activeRoomId = roomIdRef.current;
+    if (
+      activeSocket &&
+      activeRoomId &&
+      (reason === 'browser-stopped' || reason === 'track-ended')
+    ) {
+      activeSocket.emit('screen-share:stop', { roomId: activeRoomId, reason });
+    }
+
     console.log(`🖥️ Screen sharing stopped (${reason})`);
-  }, [isScreenSharing, refreshLocalPreviewStream, replaceOutgoingTrack]);
+    return true;
+  }, [refreshLocalPreviewStream, replaceOutgoingTrack]);
+
+  stopScreenShareRef.current = stopScreenShare;
 
   const startScreenShare = useCallback(async () => {
     try {
@@ -131,7 +196,7 @@ export function useWebRTC(socket, roomId, localUserId) {
         await initializeLocalStream();
       }
 
-      if (isScreenSharing) return true;
+      if (isScreenSharingRef.current) return true;
 
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -168,10 +233,17 @@ export function useWebRTC(socket, roomId, localUserId) {
       }
       refreshLocalPreviewStream();
 
-      screenVideoTrack.onended = () => {
-        stopScreenShare('browser-stopped');
+      // Always call latest stop via ref (avoids stale isScreenSharing=false early return)
+      const handleBrowserStop = () => {
+        console.log('🖥️ Browser ribbon stopped screen share');
+        stopScreenShareRef.current?.('browser-stopped');
       };
+      screenVideoTrack.addEventListener('ended', handleBrowserStop);
+      if (screenAudioTrack) {
+        screenAudioTrack.addEventListener('ended', handleBrowserStop);
+      }
 
+      isScreenSharingRef.current = true;
       setIsScreenSharing(true);
       console.log('🖥️ Screen sharing started');
       return true;
@@ -189,7 +261,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       setError(err.message || 'Failed to start screen sharing');
       return false;
     }
-  }, [initializeLocalStream, isScreenSharing, refreshLocalPreviewStream, replaceOutgoingTrack, stopScreenShare]);
+  }, [initializeLocalStream, refreshLocalPreviewStream, replaceOutgoingTrack]);
 
   // Create peer connection for a specific participant
   const createPeerConnectionInstance = useCallback(async (participantId) => {
@@ -402,56 +474,71 @@ export function useWebRTC(socket, roomId, localUserId) {
         
         connectionTimeoutsRef.current.set(participantId, timeoutId);
       } else if (state === 'failed') {
-        console.error(`❌ WebRTC connection failed with ${participantId}`);
-        
-        // Get attempt info
-        const attemptInfo = connectionAttemptsRef.current.get(participantId) || { startTime: Date.now(), attempts: 0 };
-        attemptInfo.attempts += 1;
-        connectionAttemptsRef.current.set(participantId, attemptInfo);
-        
-        // Limit reconnection attempts (max 3 attempts)
-        if (attemptInfo.attempts > 3) {
-          console.error(`❌ Max reconnection attempts (3) reached for ${participantId}. Stopping auto-retry.`);
-          setError(`Connection failed with ${participantId} after multiple attempts. Please check your network connection and try again.`);
-          
-          // Clean up
-          pc.close();
-          peerConnectionsRef.current.delete(participantId);
-          connectionAttemptsRef.current.delete(participantId);
-          connectionTimeoutsRef.current.delete(participantId);
-          
-          return; // Don't retry anymore
-        }
-        
-        setError(`Connection failed with ${participantId}. Retrying ICE... (${attemptInfo.attempts}/3)`);
+        // Remote leave often hits "failed" before socket user-left arrives — wait briefly.
+        setTimeout(() => {
+          if (
+            departedPeersRef.current.has(participantId) ||
+            !peerConnectionsRef.current.has(participantId)
+          ) {
+            console.log(`ℹ️ Ignoring ICE failure for departed peer ${participantId}`);
+            return;
+          }
 
-        // ICE restart in-place — do NOT close/recreate (that stacked duplicate tracks and glare)
-        if (socket && roomId && pc.signalingState !== 'closed') {
-          const retryDelay = Math.min(1500 * attemptInfo.attempts, 6000);
-          setTimeout(() => {
-            if (!peerConnectionsRef.current.has(participantId)) return;
-            console.log(`🔄 ICE restart with ${participantId} (attempt ${attemptInfo.attempts})...`);
+          console.error(`❌ WebRTC connection failed with ${participantId}`);
+
+          const attemptInfo =
+            connectionAttemptsRef.current.get(participantId) || {
+              startTime: Date.now(),
+              attempts: 0,
+            };
+          attemptInfo.attempts += 1;
+          connectionAttemptsRef.current.set(participantId, attemptInfo);
+
+          if (attemptInfo.attempts > 3) {
+            console.error(
+              `❌ Max reconnection attempts (3) reached for ${participantId}. Stopping auto-retry.`
+            );
+            setError(
+              `Connection failed with ${participantId} after multiple attempts. Please check your network connection and try again.`
+            );
+            try {
+              pc.close();
+            } catch {
+              /* ignore */
+            }
+            peerConnectionsRef.current.delete(participantId);
+            connectionAttemptsRef.current.delete(participantId);
+            connectionTimeoutsRef.current.delete(participantId);
+            return;
+          }
+
+          // Soft retry via ICE restart only — do not surface leave-like noise as a blocking error
+          console.log(
+            `🔄 ICE restart with ${participantId} (attempt ${attemptInfo.attempts}/3)...`
+          );
+          if (socket && roomIdRef.current && pc.signalingState !== 'closed') {
             createOfferUtil(pc, { iceRestart: true })
               .then((offer) => {
-                // createOfferUtil already setLocalDescription in our helper — check
-                return offer;
-              })
-              .then((offer) => {
+                if (
+                  departedPeersRef.current.has(participantId) ||
+                  !peerConnectionsRef.current.has(participantId)
+                ) {
+                  return;
+                }
                 socket.emit('offer', {
                   offer,
                   roomId: roomIdRef.current,
                   targetId: participantId,
                 });
-                console.log(`📤 ICE restart offer sent to ${participantId}`);
               })
               .catch((err) => {
                 console.error(`❌ ICE restart failed for ${participantId}:`, err);
               });
-          }, retryDelay);
-        }
+          }
+        }, 1200);
       } else if (state === 'disconnected') {
         console.log(`🔌 Connection disconnected with ${participantId}`);
-        // Don't set error for disconnected - it might reconnect
+        // Don't set error for disconnected - it might reconnect, or peer is leaving
       } else if (state === 'closed') {
         console.log(`🔒 Connection closed with ${participantId}`);
         // Clean up
@@ -637,7 +724,7 @@ export function useWebRTC(socket, roomId, localUserId) {
   }, []);
 
   // Start call with a specific participant (create offer)
-  const startCallWithParticipant = useCallback(async (participantId) => {
+  const startCallWithParticipant = useCallback(async (participantId, { allowRejoin = false } = {}) => {
     try {
       if (!socket || !roomId) {
         throw new Error('Socket or room ID not available');
@@ -647,6 +734,15 @@ export function useWebRTC(socket, roomId, localUserId) {
       if (participantId === socket.id) {
         console.error(`❌ Cannot create peer connection with self: ${participantId} === ${socket.id}`);
         return;
+      }
+
+      // Don't resurrect peers that just left (causes ghost "Waiting for video..." tiles)
+      if (departedPeersRef.current.has(participantId)) {
+        if (!allowRejoin) {
+          console.log(`ℹ️ Skipping call setup for departed peer ${participantId}`);
+          return;
+        }
+        departedPeersRef.current.delete(participantId);
       }
 
       // Don't create duplicate peer connection for same participant
@@ -690,6 +786,8 @@ export function useWebRTC(socket, roomId, localUserId) {
       });
       console.log(`✅ Offer sent to ${participantId} in room:`, roomId);
 
+      publishLocalMediaState();
+
       // Update connection state
       setConnectionStates(prev => {
         const newMap = new Map(prev);
@@ -700,7 +798,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.error(`Error starting call with ${participantId}:`, err);
       setError(err.message || `Failed to start call with ${participantId}`);
     }
-  }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance]);
+  }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance, publishLocalMediaState]);
 
   // Start call with all existing participants
   const startCall = useCallback(async (participantIds = []) => {
@@ -713,22 +811,13 @@ export function useWebRTC(socket, roomId, localUserId) {
       await initializeLocalStream();
     }
 
-    // Send initial media state
-    if (socket && roomId && localStreamRef.current) {
-      const videoTrack = localStreamRef.current.getVideoTracks()[0];
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      socket.emit('media-state', {
-        roomId,
-        videoEnabled: videoTrack?.enabled ?? true,
-        audioEnabled: audioTrack?.enabled ?? true,
-      });
-    }
+    publishLocalMediaState();
 
     // Create peer connections and send offers to all participants
     for (const participantId of participantIds) {
       await startCallWithParticipant(participantId);
     }
-  }, [socket, roomId, startCallWithParticipant]);
+  }, [socket, roomId, startCallWithParticipant, publishLocalMediaState, initializeLocalStream]);
 
   // Handle incoming offer
   const handleOffer = useCallback(async (offer, from) => {
@@ -1006,39 +1095,55 @@ export function useWebRTC(socket, roomId, localUserId) {
     }
   }, [socket, roomId]);
 
-  // Remove a specific participant
+  // Remove a specific participant (normal leave — not a connection error)
   const removeParticipant = useCallback((participantId) => {
-    // Close peer connection
+    departedPeersRef.current.add(participantId);
+
+    const existingTimeout = connectionTimeoutsRef.current.get(participantId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      connectionTimeoutsRef.current.delete(participantId);
+    }
+    connectionAttemptsRef.current.delete(participantId);
+    iceCandidateQueuesRef.current.delete(participantId);
+
     const pc = peerConnectionsRef.current.get(participantId);
     if (pc) {
-      pc.close();
+      try {
+        pc.onconnectionstatechange = null;
+        pc.oniceconnectionstatechange = null;
+        pc.onicecandidate = null;
+        pc.ontrack = null;
+        pc.close();
+      } catch {
+        /* ignore */
+      }
       peerConnectionsRef.current.delete(participantId);
-      console.log(`✅ Closed peer connection for ${participantId}`);
+      console.log(`✅ Closed peer connection for departed participant ${participantId}`);
     }
 
-    // Remove remote stream
-    setRemoteStreams(prev => {
+    setRemoteStreams((prev) => {
       const newMap = new Map(prev);
       newMap.delete(participantId);
       return newMap;
     });
 
-    // Remove media state
-    setRemoteMediaStates(prev => {
+    setRemoteMediaStates((prev) => {
       const newMap = new Map(prev);
       newMap.delete(participantId);
       return newMap;
     });
 
-    // Remove connection state
-    setConnectionStates(prev => {
+    setConnectionStates((prev) => {
       const newMap = new Map(prev);
       newMap.delete(participantId);
       return newMap;
     });
 
-    // Clear ICE candidate queue
-    iceCandidateQueuesRef.current.delete(participantId);
+    // Drop leave-related WebRTC error toasts
+    setError((prev) =>
+      prev && String(prev).includes(participantId) ? null : prev
+    );
   }, []);
 
   // End call (close all connections)
@@ -1047,6 +1152,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       stopStream(screenStreamRef.current);
       screenStreamRef.current = null;
     }
+    isScreenSharingRef.current = false;
     setIsScreenSharing(false);
     cameraTrackRef.current = null;
     microphoneTrackRef.current = null;
@@ -1077,6 +1183,15 @@ export function useWebRTC(socket, roomId, localUserId) {
     
     // Clear all ICE candidate queues
     iceCandidateQueuesRef.current.clear();
+    departedPeersRef.current.clear();
+    connectionAttemptsRef.current.clear();
+    connectionTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    connectionTimeoutsRef.current.clear();
+
+    // Reset mute UI so the next join does not keep a stale "Mic Off"
+    setIsVideoEnabled(true);
+    setIsAudioEnabled(true);
+    setError(null);
   }, []);
 
   // Cleanup on unmount
@@ -1121,6 +1236,21 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.error(`Error resending offer to ${participantId}:`, err);
     }
   }, [socket, roomId, startCallWithParticipant]);
+
+  // Close a stuck peer connection and optionally create a fresh offer.
+  const restartPeerConnection = useCallback(async (participantId, { offer = true } = {}) => {
+    if (departedPeersRef.current.has(participantId)) {
+      console.log(`ℹ️ Not restarting departed peer ${participantId}`);
+      removeParticipant(participantId);
+      return;
+    }
+    console.warn(`♻️ Restarting peer connection with ${participantId} (offer=${offer})`);
+    removeParticipant(participantId);
+    // removeParticipant marks them departed — allow intentional recovery recreate
+    departedPeersRef.current.delete(participantId);
+    if (!offer) return;
+    await startCallWithParticipant(participantId, { allowRejoin: true });
+  }, [removeParticipant, startCallWithParticipant]);
 
   // Update remote media state for a specific participant
   const updateRemoteMediaState = useCallback((participantId, videoEnabled, audioEnabled) => {
@@ -1211,12 +1341,54 @@ export function useWebRTC(socket, roomId, localUserId) {
     // Run verification every 2 seconds for faster recovery
     const verificationInterval = setInterval(() => {
       verifyAndFixStreams();
+
+      // Recover only when negotiation truly failed — never while remote video is live.
+      // Never recover peers that left the room (avoids ghost Waiting-for-video tiles).
+      peerConnectionsRef.current.forEach((pc, participantId) => {
+        if (departedPeersRef.current.has(participantId)) {
+          removeParticipant(participantId);
+          return;
+        }
+
+        const receiversHaveLiveVideo = pc
+          .getReceivers()
+          .some((r) => r.track?.kind === 'video' && r.track.readyState === 'live');
+        if (receiversHaveLiveVideo) return;
+
+        const waitingForAnswer =
+          pc.signalingState === 'have-local-offer' && pc.iceConnectionState === 'new';
+        const iceFailed =
+          pc.iceConnectionState === 'failed' ||
+          pc.connectionState === 'failed' ||
+          pc.connectionState === 'closed' ||
+          pc.iceConnectionState === 'closed';
+
+        if (pc.connectionState === 'closed' || pc.iceConnectionState === 'closed') {
+          removeParticipant(participantId);
+          return;
+        }
+
+        if (!waitingForAnswer && !iceFailed) return;
+
+        const startedAt = pc._synchroStartedAt || (pc._synchroStartedAt = Date.now());
+        if (Date.now() - startedAt < 8000) return;
+        if (pc._synchroRestarting) return;
+        pc._synchroRestarting = true;
+
+        const shouldOffer = String(socket.id) < String(participantId);
+        console.warn(
+          `⚠️ Peer ${participantId} stuck at connection=${pc.connectionState} ice=${pc.iceConnectionState} signaling=${pc.signalingState} — recovering`
+        );
+        restartPeerConnection(participantId, { offer: shouldOffer }).catch((err) => {
+          console.error(`❌ Failed to recover peer ${participantId}:`, err);
+        });
+      });
     }, 2000);
     
     return () => {
       clearInterval(verificationInterval);
     };
-  }, [socket, roomId, verifyAndFixStreams]);
+  }, [socket, roomId, verifyAndFixStreams, restartPeerConnection, removeParticipant]);
   
   // Also verify when connection states change
   useEffect(() => {
@@ -1244,6 +1416,7 @@ export function useWebRTC(socket, roomId, localUserId) {
     endCall,
     removeParticipant,
     initializeLocalStream,
+    publishLocalMediaState,
     resendOffer,
     updateRemoteMediaState,
     getPeerConnections, // Expose for checking existing connections
