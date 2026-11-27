@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/context/AuthContext';
 import { userAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -67,7 +68,7 @@ export function Profile() {
         const response = await userAPI.getProfile();
         setUserData(response.data.user);
       } catch (error) {
-        toast.error('Failed to load profile');
+        toast.error(getFriendlyError(error, "We couldn't load your profile. Please try again.", 'Load profile'));
       }
     };
     fetchProfile();
@@ -80,7 +81,7 @@ export function Profile() {
       updateUser(response.data.user);
       toast.success('Profile updated successfully');
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to update profile');
+      toast.error(getFriendlyError(error, "We couldn't update your profile. Please try again.", 'Update profile'));
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,7 @@ export function Profile() {
       toast.success('Password changed successfully');
       resetPasswordForm();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to change password');
+      toast.error(getFriendlyError(error, "We couldn't change your password. Please try again.", 'Change password'));
     } finally {
       setPasswordLoading(false);
     }

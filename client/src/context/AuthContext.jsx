@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 
 const AuthContext = createContext(null);
 
@@ -54,7 +55,7 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true, user: userData };
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Login failed';
+      const errorMessage = getFriendlyError(error, "We couldn't sign you in. Please try again.", 'Login');
       const status = error.response?.data?.status;
       return { success: false, error: errorMessage, status };
     }
@@ -65,7 +66,7 @@ export const AuthProvider = ({ children }) => {
       const response = await authAPI.register(userData);
       return { success: true, data: response.data };
     } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Registration failed';
+      const errorMessage = getFriendlyError(error, "We couldn't create your account. Please try again.", 'Registration');
       return { success: false, error: errorMessage };
     }
   };

@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { authAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -83,7 +84,7 @@ export function VerifyOtp() {
         replace: true,
       });
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Invalid verification code');
+      toast.error(getFriendlyError(error, "That code didn't work. Please check it and try again.", 'Verify OTP'));
     } finally {
       setLoading(false);
     }
@@ -99,7 +100,7 @@ export function VerifyOtp() {
       setCountdown(RESEND_COOLDOWN_SECONDS);
       setValue('otp', '');
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to resend code');
+      toast.error(getFriendlyError(error, "We couldn't resend the code. Please try again.", 'Resend OTP'));
     } finally {
       setResending(false);
     }

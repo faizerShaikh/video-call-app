@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { adminAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +28,7 @@ export function PendingApprovals() {
       const response = await adminAPI.getUsers({ status: 'pending' });
       setUsers(response.data.users);
     } catch (error) {
-      toast.error('Failed to load pending users');
+      toast.error(getFriendlyError(error, "We couldn't load the pending users. Please try again.", 'Load pending users'));
     } finally {
       setLoading(false);
     }
@@ -40,7 +41,7 @@ export function PendingApprovals() {
       toast.success('User approved successfully');
       fetchPendingUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to approve user');
+      toast.error(getFriendlyError(error, "We couldn't approve this user. Please try again.", 'Approve user'));
     } finally {
       setProcessing((prev) => {
         const next = new Set(prev);
@@ -68,7 +69,7 @@ export function PendingApprovals() {
       setShowRejectModal(null);
       fetchPendingUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to reject user');
+      toast.error(getFriendlyError(error, "We couldn't reject this user. Please try again.", 'Reject user'));
     } finally {
       setProcessing((prev) => {
         const next = new Set(prev);
@@ -86,7 +87,7 @@ export function PendingApprovals() {
       toast.success(`Approved ${userIds.length} user(s)`);
       fetchPendingUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to bulk approve');
+      toast.error(getFriendlyError(error, "We couldn't approve the selected users. Please try again.", 'Bulk approve'));
     } finally {
       setProcessing(new Set());
     }

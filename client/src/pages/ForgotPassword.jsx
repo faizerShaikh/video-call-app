@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { authAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,7 +40,7 @@ export function ForgotPassword() {
       });
     } catch (error) {
       toast.error(
-        error.response?.data?.error || 'Failed to send verification code. Please try again.'
+        getFriendlyError(error, "We couldn't send the verification code. Please try again.", 'Forgot password')
       );
     } finally {
       setLoading(false);

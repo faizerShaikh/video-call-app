@@ -10,6 +10,7 @@ import {
   getUserMedia,
   probeTurnRelay,
 } from '@/utils/webrtc';
+import { FRIENDLY, getMediaErrorMessage, isMediaError } from '@/utils/errorMessages';
 
 // Import these functions directly for use in callbacks
 import {
@@ -50,8 +51,15 @@ export function useWebRTC(socket, roomId, localUserId) {
   const socketRef = useRef(socket);
   const roomIdRef = useRef(roomId);
   const turnProbePromiseRef = useRef(null);
+  // Which participant the current friendly peer error belongs to (so it clears when they leave)
+  const peerErrorOwnerRef = useRef(null);
   socketRef.current = socket;
   roomIdRef.current = roomId;
+
+  const reportPeerError = useCallback((participantId, message) => {
+    peerErrorOwnerRef.current = participantId;
+    setError(message);
+  }, []);
 
   // Push local track mute state to React UI + other peers
   const publishLocalMediaState = useCallback(() => {
@@ -90,7 +98,7 @@ export function useWebRTC(socket, roomId, localUserId) {
       return stream;
     } catch (err) {
       console.error('Error initializing local stream:', err);
-      setError(err.message || 'Failed to access camera/microphone');
+      setError(getMediaErrorMessage(err));
       throw err;
     }
   }, []);
@@ -258,7 +266,7 @@ export function useWebRTC(socket, roomId, localUserId) {
         return false;
       }
       console.error('Failed to start screen share:', err);
-      setError(err.message || 'Failed to start screen sharing');
+      setError(FRIENDLY.screenShare);
       return false;
     }
   }, [initializeLocalStream, refreshLocalPreviewStream, replaceOutgoingTrack]);
@@ -459,7 +467,7 @@ export function useWebRTC(socket, roomId, localUserId) {
         const timeoutId = setTimeout(() => {
           if (pc.connectionState === 'connecting' || pc.connectionState === 'checking') {
             console.error(`⏱️ Connection to ${participantId} timed out after 30 seconds`);
-            setError(`Connection timeout with ${participantId}. The connection is taking too long.`);
+            reportPeerError(participantId, FRIENDLY.peerTimeout);
             
             // Close and clean up
             pc.close();
@@ -498,9 +506,7 @@ export function useWebRTC(socket, roomId, localUserId) {
             console.error(
               `❌ Max reconnection attempts (3) reached for ${participantId}. Stopping auto-retry.`
             );
-            setError(
-              `Connection failed with ${participantId} after multiple attempts. Please check your network connection and try again.`
-            );
+            reportPeerError(participantId, FRIENDLY.peerFailed);
             try {
               pc.close();
             } catch {
@@ -687,7 +693,7 @@ export function useWebRTC(socket, roomId, localUserId) {
     // Store peer connection
     peerConnectionsRef.current.set(participantId, pc);
     return pc;
-  }, [socket, roomId]);
+  }, [socket, roomId, reportPeerError]);
 
   // Process queued ICE candidates for a specific participant
   const processIceCandidateQueue = useCallback(async (participantId) => {
@@ -796,9 +802,12 @@ export function useWebRTC(socket, roomId, localUserId) {
       });
     } catch (err) {
       console.error(`Error starting call with ${participantId}:`, err);
-      setError(err.message || `Failed to start call with ${participantId}`);
+      reportPeerError(
+        participantId,
+        isMediaError(err) ? getMediaErrorMessage(err) : FRIENDLY.startCall
+      );
     }
-  }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance, publishLocalMediaState]);
+  }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance, publishLocalMediaState, reportPeerError]);
 
   // Start call with all existing participants
   const startCall = useCallback(async (participantIds = []) => {
@@ -951,9 +960,9 @@ export function useWebRTC(socket, roomId, localUserId) {
       });
     } catch (err) {
       console.error(`Error handling offer from ${from}:`, err);
-      setError(err.message || `Failed to handle offer from ${from}`);
+      reportPeerError(from, isMediaError(err) ? getMediaErrorMessage(err) : FRIENDLY.peerConnecting);
     }
-  }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance, processIceCandidateQueue]);
+  }, [socket, roomId, initializeLocalStream, createPeerConnectionInstance, processIceCandidateQueue, reportPeerError]);
 
   // Handle incoming answer
   const handleAnswer = useCallback(async (answer, from) => {
@@ -990,12 +999,12 @@ export function useWebRTC(socket, roomId, localUserId) {
       console.error(`Error handling answer from ${from}:`, err);
       // Don't set error state for InvalidStateError - it's usually a duplicate/late answer
       if (err.name !== 'InvalidStateError') {
-        setError(err.message || `Failed to handle answer from ${from}`);
+        reportPeerError(from, FRIENDLY.peerConnecting);
       } else {
         console.log(`ℹ️ InvalidStateError when handling answer (likely duplicate/late answer), ignoring`);
       }
     }
-  }, [processIceCandidateQueue]);
+  }, [processIceCandidateQueue, reportPeerError]);
 
   // Handle ICE candidate
   const handleIceCandidate = useCallback(async (candidate, from) => {
@@ -1140,10 +1149,11 @@ export function useWebRTC(socket, roomId, localUserId) {
       return newMap;
     });
 
-    // Drop leave-related WebRTC error toasts
-    setError((prev) =>
-      prev && String(prev).includes(participantId) ? null : prev
-    );
+    // Drop the error that belonged to the participant who just left
+    if (peerErrorOwnerRef.current === participantId) {
+      peerErrorOwnerRef.current = null;
+      setError(null);
+    }
   }, []);
 
   // End call (close all connections)

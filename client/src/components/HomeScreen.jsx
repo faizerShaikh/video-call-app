@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { calendarAPI, meetingAPI } from '@/services/api';
+import { FRIENDLY, getFriendlyError, logError } from '@/utils/errorMessages';
 
 function makeCode() {
   const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -95,8 +96,8 @@ export function HomeScreen({
         passcodeEnabled: passcodeOn,
         passcode: passcodeOn ? passcode : '',
         expires,
-      }).catch(() => {
-        toast.error('Could not save meeting settings');
+      }).catch((error) => {
+        toast.error(getFriendlyError(error, "We couldn't save your meeting settings. Please try again.", 'Save meeting settings'));
       });
     }, 400);
     return () => clearTimeout(timer);
@@ -105,8 +106,9 @@ export function HomeScreen({
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
-    } catch {
-      toast.error('Could not copy the link');
+    } catch (error) {
+      logError('Copy meeting link', error);
+      toast.error(FRIENDLY.copy);
       return;
     }
     setCopied(true);
@@ -149,7 +151,11 @@ export function HomeScreen({
     if (provider && connected != null) {
       const name = provider === 'google' ? 'Google Calendar' : 'Microsoft Outlook';
       if (connected === '1') toast.success(`${name} connected`);
-      else toast.error(searchParams.get('reason') || `Could not connect ${name}`);
+      else {
+        // The provider's raw reason is technical — log it, show a friendly message.
+        console.error(`❌ ${name} connection failed:`, searchParams.get('reason'));
+        toast.error(`We couldn't connect ${name}. Please try again.`);
+      }
       const next = new URLSearchParams(searchParams);
       next.delete('calendar');
       next.delete('connected');
@@ -170,7 +176,7 @@ export function HomeScreen({
       const { data } = await calendarAPI.start(provider);
       window.location.assign(data.url);
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not start the calendar connection');
+      toast.error(getFriendlyError(error, "We couldn't start the calendar connection. Please try again.", 'Start calendar connection'));
       setConnecting(null);
     }
   };
@@ -182,7 +188,7 @@ export function HomeScreen({
       applyCalendarStatus(data);
       toast.success(provider === 'google' ? 'Google Calendar disconnected' : 'Outlook disconnected');
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not disconnect');
+      toast.error(getFriendlyError(error, "We couldn't disconnect your calendar. Please try again.", 'Disconnect calendar'));
     } finally {
       setConnecting(null);
     }
@@ -233,7 +239,7 @@ export function HomeScreen({
       toast.success(data.message || 'Meeting scheduled');
       setScheduleForm((form) => ({ ...form, title: '', invites: '' }));
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not schedule the meeting');
+      toast.error(getFriendlyError(error, "We couldn't schedule your meeting. Please try again.", 'Schedule meeting'));
     } finally {
       setScheduling(false);
     }

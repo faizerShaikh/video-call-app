@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { adminAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LuUsers, LuUserCheck, LuUserX, LuClock, LuArrowRight } from 'react-icons/lu';
@@ -17,7 +18,7 @@ export function AdminDashboard() {
         const response = await adminAPI.getDashboardStats();
         setStats(response.data.stats);
       } catch (error) {
-        toast.error('Failed to load dashboard statistics');
+        toast.error(getFriendlyError(error, "We couldn't load the dashboard. Please try again.", 'Load dashboard stats'));
       } finally {
         setLoading(false);
       }

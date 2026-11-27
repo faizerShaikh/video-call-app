@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/context/AuthContext';
+import { FRIENDLY, logError } from '@/utils/errorMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -76,11 +77,12 @@ export function Login() {
         } else if (result.status === 'suspended') {
           navigate('/suspended');
         } else {
-          toast.error(result.error || 'Login failed');
+          toast.error(result.error || "We couldn't sign you in. Please try again.");
         }
       }
     } catch (error) {
-      toast.error('An unexpected error occurred');
+      logError('Login submit', error);
+      toast.error(FRIENDLY.generic);
     } finally {
       setLoading(false);
     }

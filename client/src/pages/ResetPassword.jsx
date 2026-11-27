@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { authAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -91,7 +92,7 @@ export function ResetPassword() {
       toast.success(response.data.message || 'Password reset successful');
       navigate('/login', { replace: true });
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to reset password');
+      toast.error(getFriendlyError(error, "We couldn't reset your password. Please try again.", 'Reset password'));
     } finally {
       setLoading(false);
     }

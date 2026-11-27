@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { adminAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +32,7 @@ export function UserManagement() {
       toast.success(`User ${!currentIsPro ? 'upgraded to' : 'removed from'} Pro`);
       fetchUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to update Pro status');
+      toast.error(getFriendlyError(error, "We couldn't update the Pro status. Please try again.", 'Update Pro status'));
     } finally {
       setProToggling((prev) => {
         const next = new Set(prev);
@@ -63,7 +64,7 @@ export function UserManagement() {
       setUsers(response.data.users);
       setPagination(response.data.pagination);
     } catch (error) {
-      toast.error('Failed to load users');
+      toast.error(getFriendlyError(error, "We couldn't load the users. Please try again.", 'Load users'));
     } finally {
       setLoading(false);
     }
@@ -97,7 +98,7 @@ export function UserManagement() {
       setSuspendReason('');
       fetchUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to suspend user');
+      toast.error(getFriendlyError(error, "We couldn't suspend this user. Please try again.", 'Suspend user'));
     } finally {
       setProcessing((prev) => {
         const next = new Set(prev);
@@ -114,7 +115,7 @@ export function UserManagement() {
       toast.success('User unsuspended successfully');
       fetchUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to unsuspend user');
+      toast.error(getFriendlyError(error, "We couldn't unsuspend this user. Please try again.", 'Unsuspend user'));
     } finally {
       setProcessing((prev) => {
         const next = new Set(prev);
@@ -132,7 +133,7 @@ export function UserManagement() {
       setDeleteConfirmModal(null);
       fetchUsers();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to delete user');
+      toast.error(getFriendlyError(error, "We couldn't delete this user. Please try again.", 'Delete user'));
     } finally {
       setProcessing((prev) => {
         const next = new Set(prev);

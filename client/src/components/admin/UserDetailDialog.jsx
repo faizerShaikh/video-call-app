@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { adminAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -27,7 +28,7 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
       const response = await adminAPI.getUserById(userId);
       setUser(response.data.user);
     } catch (error) {
-      toast.error('Failed to load user details');
+      toast.error(getFriendlyError(error, "We couldn't load this user's details. Please try again.", 'Load user details'));
       onClose();
     } finally {
       setLoading(false);
@@ -42,7 +43,7 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
       if (onUserUpdated) onUserUpdated();
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to approve user');
+      toast.error(getFriendlyError(error, "We couldn't approve this user. Please try again.", 'Approve user'));
     } finally {
       setProcessing(false);
     }
@@ -63,7 +64,7 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
       if (onUserUpdated) onUserUpdated();
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to reject user');
+      toast.error(getFriendlyError(error, "We couldn't reject this user. Please try again.", 'Reject user'));
     } finally {
       setProcessing(false);
     }
@@ -84,7 +85,7 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
       if (onUserUpdated) onUserUpdated();
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to suspend user');
+      toast.error(getFriendlyError(error, "We couldn't suspend this user. Please try again.", 'Suspend user'));
     } finally {
       setProcessing(false);
     }
@@ -98,7 +99,7 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
       if (onUserUpdated) onUserUpdated();
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to update Pro status');
+      toast.error(getFriendlyError(error, "We couldn't update the Pro status. Please try again.", 'Update Pro status'));
     } finally {
       setProcessing(false);
     }
@@ -112,7 +113,7 @@ export function UserDetailDialog({ userId, isOpen, onClose, onUserUpdated }) {
       if (onUserUpdated) onUserUpdated();
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to unsuspend user');
+      toast.error(getFriendlyError(error, "We couldn't unsuspend this user. Please try again.", 'Unsuspend user'));
     } finally {
       setProcessing(false);
     }

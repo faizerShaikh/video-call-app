@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { FRIENDLY } from '@/utils/errorMessages';
 
 // Dynamically determine socket URL based on current window location
 const getSocketUrl = () => {
@@ -112,24 +113,9 @@ export function useSocket() {
         return;
       }
       
-      // More specific error messages
-      let errorMessage = 'Failed to connect to server';
-      if (err.message) {
-        errorMessage = err.message;
-      } else if (err.type === 'TransportError' || err.message?.includes('xhr poll')) {
-        // Only show error if not reconnecting
-        if (!newSocket.io?.engine?.reconnecting) {
-          errorMessage = 'Connection failed. Check if server is running and CORS is configured correctly.';
-        } else {
-          return; // Don't set error during reconnection
-        }
-      } else if (err.type === 'TimeoutError') {
-        errorMessage = 'Connection timeout. Check if server is running on port 3001.';
-      } else if (err.message?.includes('CORS')) {
-        errorMessage = 'CORS error. Server may not be allowing your origin.';
-      }
-      
-      setError(`Connection error: ${errorMessage}`);
+      // The technical reason (server down, CORS, timeout…) is logged above.
+      // Users only see one friendly message.
+      setError(FRIENDLY.connectServer);
       setIsConnected(false);
     });
 
@@ -149,7 +135,7 @@ export function useSocket() {
 
     newSocket.on('reconnect_failed', () => {
       console.error('❌ Reconnection failed after all attempts');
-      setError('Failed to reconnect. Please refresh the page.');
+      setError(FRIENDLY.reconnectFailed);
     });
 
     setSocket(newSocket);

@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { LuCopy } from 'react-icons/lu';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { FRIENDLY, getMediaErrorMessage, getSafeServerMessage, isMediaError } from '@/utils/errorMessages';
 
 function PasscodePrompt({ onSubmit, onCancel }) {
   const [value, setValue] = useState('');
@@ -98,6 +99,7 @@ export function VideoCall() {
   const joinIdentityRef = useRef({ userId: localUserId, userName: 'Guest', userEmail: null, isPro: false });
   const isWaitingRef = useRef(false);
   const wasScreenSharingRef = useRef(false);
+  const hookErrorShownRef = useRef(false);
   const allowUnloadRef = useRef(false);
 
   const { user, isAuthenticated, loading: authLoading } = useAuth();
@@ -161,7 +163,7 @@ export function VideoCall() {
     }
 
     if (!socket || !isConnected) {
-      setError('Not connected to server. Please wait...');
+      setError("We're still connecting. Please wait a moment and try again.");
       return;
     }
 
@@ -208,7 +210,7 @@ export function VideoCall() {
       });
     } catch (err) {
       console.error('Error joining room:', err);
-      setError(err.message || 'Failed to join room');
+      setError(isMediaError(err) ? getMediaErrorMessage(err) : FRIENDLY.joinRoom);
     }
   };
 
@@ -502,9 +504,6 @@ export function VideoCall() {
         next.delete(socketId);
         return next;
       });
-      setError((prev) =>
-        prev && String(prev).includes(socketId) ? null : prev
-      );
     });
 
     // Handle room update
@@ -623,20 +622,20 @@ export function VideoCall() {
     });
 
     socket.on('join-request-rejected', ({ message }) => {
-      toast.error(message || 'Your join request was denied');
+      toast.error(getSafeServerMessage(message, 'The host did not admit you to the meeting.'));
       endCall();
       resetJoinState();
       if (!user) setGuestReady(false);
-      setError(message || 'Your request to join was denied by the host.');
+      setError(getSafeServerMessage(message, 'The host did not admit you to the meeting.'));
     });
 
     socket.on('join-request-cancelled', ({ message, reason }) => {
       if (reason === 'cancelled') return;
-      toast.error(message || 'Your join request was cancelled');
+      toast.error(getSafeServerMessage(message, 'Your join request was cancelled.'));
       endCall();
       resetJoinState();
       if (!user) setGuestReady(false);
-      setError(message || 'Your join request was cancelled.');
+      setError(getSafeServerMessage(message, 'Your join request was cancelled.'));
     });
 
     socket.on('join-request', (request) => {
@@ -659,7 +658,7 @@ export function VideoCall() {
     });
 
     socket.on('join-request:error', ({ message }) => {
-      toast.error(message || 'Unable to process join request');
+      toast.error(getSafeServerMessage(message, "We couldn't process that join request. Please try again."));
       setBusyRequesterId(null);
     });
 
@@ -674,7 +673,7 @@ export function VideoCall() {
     // Handle room join error
     socket.on('join-room-error', ({ message }) => {
       console.error('❌ Room join error:', message);
-      setError(`Failed to join room: ${message}`);
+      setError(getSafeServerMessage(message, FRIENDLY.joinRoom));
       isWaitingRef.current = false;
       setIsWaitingForApproval(false);
       setHasJoinedRoom(false);
@@ -724,10 +723,17 @@ export function VideoCall() {
 
   // Display errors
   useEffect(() => {
+    // Hook errors are already friendly — show them as-is (no "WebRTC error:" prefix),
+    // and clear them again once the hook recovers.
     if (socketError) {
-      setError(`Connection error: ${socketError}`);
+      hookErrorShownRef.current = true;
+      setError(socketError);
     } else if (webrtcError) {
-      setError(`WebRTC error: ${webrtcError}`);
+      hookErrorShownRef.current = true;
+      setError(webrtcError);
+    } else if (hookErrorShownRef.current) {
+      hookErrorShownRef.current = false;
+      setError(null);
     }
   }, [socketError, webrtcError]);
 
@@ -808,11 +814,13 @@ export function VideoCall() {
     } catch (error) {
       // User cancelled share or error occurred, fallback to clipboard
       if (error.name !== 'AbortError') {
+        console.error('Share failed, falling back to clipboard:', error);
         try {
           await navigator.clipboard.writeText(shareLink);
           toast.success('Room link copied to clipboard!');
         } catch (clipboardError) {
-          toast.error('Failed to copy link');
+          console.error('Copy to clipboard failed:', clipboardError);
+          toast.error(FRIENDLY.copy);
         }
       }
     }

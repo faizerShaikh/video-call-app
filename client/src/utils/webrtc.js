@@ -1,3 +1,5 @@
+import { getMediaErrorMessage } from '@/utils/errorMessages';
+
 const STUN_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -282,21 +284,16 @@ export function isSecureContext() {
 export async function getUserMedia(constraints = { video: true, audio: true }) {
   // Check if we're in a secure context
   if (!isSecureContext()) {
-    const error = new Error(
-      'WebRTC requires a secure context (HTTPS). ' +
-      'Please access the app via HTTPS or use localhost. ' +
-      'For local network access, consider using a reverse proxy or accessing via localhost.'
-    );
+    console.error('WebRTC requires a secure context (HTTPS) or localhost.');
+    const error = new Error(getMediaErrorMessage({ name: 'NotSupportedError' }));
     error.name = 'NotSupportedError';
     throw error;
   }
 
   // Check if getUserMedia is available
   if (!isGetUserMediaSupported()) {
-    const error = new Error(
-      'getUserMedia is not supported in this browser. ' +
-      'Please use a modern browser like Chrome, Firefox, or Edge.'
-    );
+    console.error('getUserMedia is not supported in this browser.');
+    const error = new Error(getMediaErrorMessage({ name: 'NotSupportedError' }));
     error.name = 'NotSupportedError';
     throw error;
   }
@@ -323,20 +320,12 @@ export async function getUserMedia(constraints = { video: true, audio: true }) {
 
     throw new Error('getUserMedia is not available');
   } catch (error) {
+    // Real error is logged for debugging; the user only sees the friendly text.
     console.error('Error getting user media:', error);
 
     // Don't mutate error.message — it's read-only in Edge and some Chromium builds
-    let message = error?.message || 'Failed to access camera/microphone';
-    if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-      message = 'Camera/microphone access denied. Please allow permissions and try again.';
-    } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-      message = 'No camera/microphone found. Please connect a device and try again.';
-    } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-      message = 'Camera/microphone is already in use by another application.';
-    }
-
-    const friendlyError = new Error(message);
-    friendlyError.name = error.name || 'MediaError';
+    const friendlyError = new Error(getMediaErrorMessage(error));
+    friendlyError.name = error?.name || 'MediaError';
     throw friendlyError;
   }
 }

@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@/context/AuthContext';
+import { FRIENDLY, logError } from '@/utils/errorMessages';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -87,10 +88,11 @@ export function Register() {
         toast.success('Registration successful! Awaiting admin approval.');
         navigate('/pending-approval');
       } else {
-        toast.error(result.error || 'Registration failed');
+        toast.error(result.error || "We couldn't create your account. Please try again.");
       }
     } catch (error) {
-      toast.error('An unexpected error occurred');
+      logError('Register submit', error);
+      toast.error(FRIENDLY.generic);
     } finally {
       setLoading(false);
     }

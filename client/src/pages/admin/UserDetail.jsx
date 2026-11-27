@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { adminAPI } from '@/services/api';
+import { getFriendlyError } from '@/utils/errorMessages';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +30,7 @@ export function UserDetail() {
       const response = await adminAPI.getUserById(id);
       setUser(response.data.user);
     } catch (error) {
-      toast.error('Failed to load user details');
+      toast.error(getFriendlyError(error, "We couldn't load this user's details. Please try again.", 'Load user details'));
       navigate('/admin/users');
     } finally {
       setLoading(false);
@@ -43,7 +44,7 @@ export function UserDetail() {
       toast.success('User approved successfully');
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to approve user');
+      toast.error(getFriendlyError(error, "We couldn't approve this user. Please try again.", 'Approve user'));
     } finally {
       setProcessing(false);
     }
@@ -63,7 +64,7 @@ export function UserDetail() {
       setRejectReason('');
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to reject user');
+      toast.error(getFriendlyError(error, "We couldn't reject this user. Please try again.", 'Reject user'));
     } finally {
       setProcessing(false);
     }
@@ -83,7 +84,7 @@ export function UserDetail() {
       setSuspendReason('');
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to suspend user');
+      toast.error(getFriendlyError(error, "We couldn't suspend this user. Please try again.", 'Suspend user'));
     } finally {
       setProcessing(false);
     }
@@ -96,7 +97,7 @@ export function UserDetail() {
       toast.success(`User ${!user.isPro ? 'upgraded to' : 'removed from'} Pro`);
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to update Pro status');
+      toast.error(getFriendlyError(error, "We couldn't update the Pro status. Please try again.", 'Update Pro status'));
     } finally {
       setProcessing(false);
     }
@@ -109,7 +110,7 @@ export function UserDetail() {
       toast.success('User unsuspended successfully');
       fetchUser();
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to unsuspend user');
+      toast.error(getFriendlyError(error, "We couldn't unsuspend this user. Please try again.", 'Unsuspend user'));
     } finally {
       setProcessing(false);
     }
